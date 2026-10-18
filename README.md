@@ -35,6 +35,15 @@ pip install -r requirements.txt
 python app.py
 ```
 
+## 程式結構
+
+- `app.py`：Tkinter 介面、應用程式狀態與各功能流程協調
+- `detection.py`：圖片比對、顏色計算與 Windows OCR
+- `input_control.py`：鍵盤事件資料、序列化與 Windows 輸入控制
+- `audio.py`：提示音參數與 WAV 產生
+
+各模組維持單向依賴，功能核心不會反向匯入 GUI，方便個別測試與後續維護。
+
 某些以系統管理員權限執行的遊戲只能接收同等權限程式送出的按鍵，此時也請用系統管理員身分啟動本工具。部分使用核心層反作弊或獨佔輸入的遊戲可能拒絕模擬輸入；請遵守遊戲服務條款。
 
 ## 操作

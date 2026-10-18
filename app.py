@@ -1,40 +1,42 @@
 from __future__ import annotations
 
-import asyncio
 import ctypes
 from ctypes import wintypes
 from datetime import datetime
-from difflib import SequenceMatcher
 import json
-import math
 import os
 import queue
 import random
-import struct
 import sys
 import threading
 import time
 import traceback
 import tkinter as tk
-import unicodedata
-import wave
 import winsound
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
-import cv2
-import numpy as np
 from PIL import Image, ImageGrab, ImageOps, ImageTk
 from pynput import keyboard, mouse
-from winrt.windows.globalization import Language
-from winrt.windows.graphics.imaging import (
-    BitmapAlphaMode,
-    BitmapPixelFormat,
-    SoftwareBitmap,
+
+from audio import ALERT_BASE_DURATION, ALERT_PLAYBACK_SPEED, create_alert_sound
+from detection import (
+    count_color,
+    find_template,
+    normalize_ocr_text,
+    ocr_text_similarity,
+    recognize_text_for_target,
 )
-from winrt.windows.media.ocr import OcrEngine
-from winrt.windows.storage.streams import Buffer
+from input_control import (
+    KeyEvent,
+    display_key,
+    is_modifier_key,
+    precise_wait_until,
+    reverse_horizontal_key,
+    send_windows_key,
+    serialize_key,
+)
 
 
 APP_DIR = (
@@ -47,11 +49,6 @@ SOUND_DIR = APP_DIR / "sounds"
 PROJECT_DIR = APP_DIR / "project_data"
 PROJECT_TEMPLATE_DIR = PROJECT_DIR / "templates"
 PROJECT_FILE = PROJECT_DIR / "gkey_project.json"
-ALERT_PLAYBACK_SPEED = 2.0
-ALERT_BASE_DURATION = 0.90
-OCR_LANGUAGE = "zh-Hant-TW"
-_ocr_thread_local = threading.local()
-
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 kernel32 = ctypes.windll.kernel32
@@ -60,11 +57,6 @@ SC_RESTORE = 0xF120
 WM_SYSCOMMAND = 0x0112
 PW_RENDERFULLCONTENT = 0x00000002
 HOTKEY_CHOICES = tuple(f"F{i}" for i in range(1, 13))
-INPUT_KEYBOARD = 1
-KEYEVENTF_EXTENDEDKEY = 0x0001
-KEYEVENTF_KEYUP = 0x0002
-EXTENDED_VKS = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x5B, 0x5C, 0xA3, 0xA5}
-
 # Declare pointer-sized Win32 return values explicitly; HWND/HDC/HBITMAP are
 # 64-bit values in a 64-bit Python process.
 user32.GetWindowDC.restype = wintypes.HDC
@@ -98,44 +90,6 @@ kernel32.QueryFullProcessImageNameW.argtypes = [
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
 
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = [
-        ("wVk", wintypes.WORD),
-        ("wScan", wintypes.WORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
-        ("dwExtraInfo", wintypes.WPARAM),
-    ]
-
-
-class MOUSEINPUT(ctypes.Structure):
-    _fields_ = [
-        ("dx", wintypes.LONG),
-        ("dy", wintypes.LONG),
-        ("mouseData", wintypes.DWORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
-        ("dwExtraInfo", wintypes.WPARAM),
-    ]
-
-
-class HARDWAREINPUT(ctypes.Structure):
-    _fields_ = [
-        ("uMsg", wintypes.DWORD),
-        ("wParamL", wintypes.WORD),
-        ("wParamH", wintypes.WORD),
-    ]
-
-
-class INPUT_UNION(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("hi", HARDWAREINPUT)]
-
-
-class INPUT(ctypes.Structure):
-    _anonymous_ = ("value",)
-    _fields_ = [("type", wintypes.DWORD), ("value", INPUT_UNION)]
-
-
 class BITMAPINFOHEADER(ctypes.Structure):
     _fields_ = [
         ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
@@ -155,13 +109,6 @@ gdi32.GetDIBits.argtypes = [
     wintypes.HDC, wintypes.HBITMAP, wintypes.UINT, wintypes.UINT,
     ctypes.c_void_p, ctypes.POINTER(BITMAPINFO), wintypes.UINT,
 ]
-
-
-@dataclass
-class KeyEvent:
-    time: float
-    action: str
-    key: str
 
 
 def enum_windows() -> list[tuple[int, str]]:
@@ -297,31 +244,6 @@ def capture_window(hwnd: int) -> Image.Image:
     )
 
 
-def find_template(screen: Image.Image, template: Image.Image) -> tuple[float, tuple[int, int]]:
-    source = cv2.cvtColor(np.asarray(screen), cv2.COLOR_RGB2BGR)
-    needle = cv2.cvtColor(np.asarray(template), cv2.COLOR_RGB2BGR)
-    if needle.shape[0] > source.shape[0] or needle.shape[1] > source.shape[1]:
-        return 0.0, (0, 0)
-    if float(np.max(np.std(needle, axis=(0, 1)))) < 1e-6:
-        result = cv2.matchTemplate(source, needle, cv2.TM_SQDIFF_NORMED)
-        min_value, _max_value, min_location, _max_location = cv2.minMaxLoc(result)
-        return max(0.0, 1.0 - float(min_value)), min_location
-    result = cv2.matchTemplate(source, needle, cv2.TM_CCOEFF_NORMED)
-    _min_value, max_value, _min_location, max_location = cv2.minMaxLoc(result)
-    if np.isnan(max_value):
-        # Guard against malformed values returned by unusual image inputs.
-        result = cv2.matchTemplate(source, needle, cv2.TM_SQDIFF_NORMED)
-        min_value, _max_value, min_location, _max_location = cv2.minMaxLoc(result)
-        return max(0.0, 1.0 - float(min_value)), min_location
-    return max(0.0, min(1.0, float(max_value))), max_location
-
-
-def count_color(image: Image.Image, rgb: tuple[int, int, int], tolerance: int) -> int:
-    pixels = np.asarray(image, dtype=np.int16)
-    target = np.asarray(rgb, dtype=np.int16)
-    return int(np.all(np.abs(pixels - target) <= tolerance, axis=2).sum())
-
-
 def screen_pixel_color(x: int, y: int) -> tuple[int, int, int]:
     """Read one physical screen pixel using virtual-desktop coordinates."""
     screen_dc = user32.GetDC(0)
@@ -334,250 +256,6 @@ def screen_pixel_color(x: int, y: int) -> tuple[int, int, int]:
         return color_ref & 0xFF, (color_ref >> 8) & 0xFF, (color_ref >> 16) & 0xFF
     finally:
         user32.ReleaseDC(0, screen_dc)
-
-
-def create_alert_sound(
-    path: Path, volume_db: float, playback_speed: float = ALERT_PLAYBACK_SPEED
-) -> None:
-    """Create one clear bell chord rendered at the selected playback speed."""
-    sample_rate = 44100
-    duration = ALERT_BASE_DURATION / playback_speed
-    gain = 10.0 ** (volume_db / 20.0)
-    notes = (
-        (0.00, 659.25, 0.50),   # E5
-        (0.00, 830.61, 0.38),   # G#5
-        (0.00, 987.77, 0.30),   # B5
-    )
-    frames = bytearray()
-    for index in range(round(sample_rate * duration)):
-        moment = index * playback_speed / sample_rate
-        sample = 0.0
-        for start, frequency, strength in notes:
-            local_time = moment - start
-            if local_time < 0:
-                continue
-            attack = min(1.0, local_time / 0.008)
-            decay = math.exp(-4.3 * local_time)
-            phase = 2.0 * math.pi * frequency * local_time
-            bell = (
-                math.sin(phase)
-                + 0.30 * math.sin(phase * 2.01)
-                + 0.12 * math.sin(phase * 3.98)
-            )
-            sample += strength * attack * decay * bell
-        # Gentle saturation keeps the chime audible without harsh clipping.
-        sample = math.tanh(sample * 0.82) * 0.88 * gain
-        pcm = max(-32767, min(32767, round(sample * 32767)))
-        frames.extend(struct.pack("<h", pcm))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as output:
-        output.setnchannels(1)
-        output.setsampwidth(2)
-        output.setframerate(sample_rate)
-        output.writeframes(frames)
-
-
-def normalize_ocr_text(value: str) -> str:
-    """Normalize OCR output for stable, color-independent keyword matching."""
-    normalized = unicodedata.normalize("NFKC", value).casefold()
-    return "".join(character for character in normalized if not character.isspace())
-
-
-def ocr_text_similarity(target: str, recognized: str) -> float:
-    """Return the best partial fuzzy-match score for OCR text."""
-    needle = normalize_ocr_text(target)
-    haystack = normalize_ocr_text(recognized)
-    if not needle or not haystack:
-        return 0.0
-    if needle in haystack:
-        return 1.0
-    best = SequenceMatcher(None, needle, haystack).ratio()
-    if len(needle) <= 4:
-        minimum = maximum = min(len(needle), len(haystack))
-    else:
-        minimum = max(1, len(needle) - 2)
-        maximum = min(len(haystack), len(needle) + 2)
-    for length in range(minimum, maximum + 1):
-        for start in range(0, len(haystack) - length + 1):
-            candidate = haystack[start:start + length]
-            best = max(best, SequenceMatcher(None, needle, candidate).ratio())
-    return best
-
-
-def recognize_text(image: Image.Image) -> str:
-    """Read Traditional Chinese and Latin text with the Windows OCR engine."""
-    engine = getattr(_ocr_thread_local, "engine", None)
-    if engine is None:
-        available = {
-            language.language_tag for language in OcrEngine.available_recognizer_languages
-        }
-        if OCR_LANGUAGE not in available:
-            raise RuntimeError(
-                "Windows 尚未安裝繁體中文 OCR 語言（zh-Hant-TW）。"
-            )
-        engine = OcrEngine.try_create_from_language(Language(OCR_LANGUAGE))
-        if engine is None:
-            raise RuntimeError("無法啟動 Windows 繁體中文 OCR 引擎。")
-        _ocr_thread_local.engine = engine
-
-    grayscale = ImageOps.autocontrast(ImageOps.grayscale(image))
-    max_dimension = int(OcrEngine.max_image_dimension)
-    if max(grayscale.size) <= max_dimension // 2:
-        grayscale = grayscale.resize(
-            (grayscale.width * 2, grayscale.height * 2),
-            Image.Resampling.LANCZOS,
-        )
-    elif max(grayscale.size) > max_dimension:
-        scale = max_dimension / max(grayscale.size)
-        grayscale = grayscale.resize(
-            (
-                max(1, round(grayscale.width * scale)),
-                max(1, round(grayscale.height * scale)),
-            ),
-            Image.Resampling.LANCZOS,
-        )
-    pixels = grayscale.tobytes()
-    buffer = Buffer(len(pixels))
-    buffer.length = len(pixels)
-    memoryview(buffer)[:] = pixels
-    bitmap = SoftwareBitmap(
-        BitmapPixelFormat.GRAY8,
-        grayscale.width,
-        grayscale.height,
-        BitmapAlphaMode.IGNORE,
-    )
-    bitmap.copy_from_buffer(buffer)
-
-    async def run_ocr() -> str:
-        result = await engine.recognize_async(bitmap)
-        return result.text
-
-    try:
-        return asyncio.run(run_ocr())
-    finally:
-        bitmap.close()
-
-
-def recognize_text_for_target(image: Image.Image, target: str) -> str:
-    """OCR the whole window, then overlapping enlarged tiles for small text."""
-    full_text = recognize_text(image)
-    best_text = full_text
-    best_score = ocr_text_similarity(target, full_text)
-    if best_score >= 1.0 or image.width <= 320 or image.height <= 240:
-        return best_text
-
-    tile_width = min(320, image.width)
-    tile_height = min(240, image.height)
-    x_steps = min(6, max(1, math.ceil(image.width / tile_width) + 1))
-    y_steps = min(4, max(1, math.ceil(image.height / tile_height)))
-    x_positions = [
-        round(index * (image.width - tile_width) / max(1, x_steps - 1))
-        for index in range(x_steps)
-    ]
-    y_positions = [
-        round(index * (image.height - tile_height) / max(1, y_steps - 1))
-        for index in range(y_steps)
-    ]
-    for top in y_positions:
-        for left in x_positions:
-            tile = image.crop((left, top, left + tile_width, top + tile_height))
-            tile_text = recognize_text(tile)
-            score = ocr_text_similarity(target, tile_text)
-            if score > best_score:
-                best_score = score
-                best_text = tile_text
-            if best_score >= 1.0:
-                return best_text
-    return best_text
-
-
-def serialize_key(key: keyboard.Key | keyboard.KeyCode) -> str | None:
-    if isinstance(key, keyboard.KeyCode):
-        if key.vk is not None:
-            return f"vk:{key.vk}"
-        if key.char is not None:
-            return f"char:{key.char}"
-        return None
-    return f"key:{key.name}"
-
-
-def deserialize_key(value: str) -> keyboard.Key | keyboard.KeyCode:
-    kind, data = value.split(":", 1)
-    if kind == "vk":
-        return keyboard.KeyCode.from_vk(int(data))
-    if kind == "char":
-        return keyboard.KeyCode.from_char(data)
-    if kind == "key":
-        return getattr(keyboard.Key, data)
-    raise ValueError(f"未知按鍵格式：{value}")
-
-
-def display_key(value: str) -> str:
-    kind, data = value.split(":", 1)
-    if kind == "char":
-        return data.upper() if len(data) == 1 else data
-    if kind == "vk":
-        return f"VK {data}"
-    friendly = {
-        "space": "Space", "enter": "Enter", "tab": "Tab", "backspace": "Backspace",
-        "esc": "Esc", "delete": "Delete", "shift": "Shift", "shift_l": "左 Shift",
-        "shift_r": "右 Shift", "ctrl": "Ctrl", "ctrl_l": "左 Ctrl",
-        "ctrl_r": "右 Ctrl", "alt": "Alt", "alt_l": "左 Alt", "alt_r": "右 Alt",
-        "cmd": "Win", "cmd_l": "左 Win", "cmd_r": "右 Win",
-    }
-    return friendly.get(data, data.replace("_", " ").title())
-
-
-def is_modifier_key(value: str) -> bool:
-    return value in {
-        "key:alt", "key:alt_l", "key:alt_r", "key:alt_gr",
-        "key:ctrl", "key:ctrl_l", "key:ctrl_r",
-        "key:shift", "key:shift_l", "key:shift_r",
-        "key:cmd", "key:cmd_l", "key:cmd_r",
-    }
-
-
-def reverse_horizontal_key(value: str) -> str:
-    return {"key:left": "key:right", "key:right": "key:left"}.get(value, value)
-
-
-def virtual_key(value: str) -> int:
-    key = deserialize_key(value)
-    if isinstance(key, keyboard.Key):
-        vk = key.value.vk
-    else:
-        vk = key.vk
-        if vk is None and key.char:
-            mapped = int(user32.VkKeyScanW(key.char))
-            vk = mapped & 0xFF if mapped != -1 else None
-    if vk is None:
-        raise ValueError(f"無法取得虛擬鍵碼：{value}")
-    return int(vk)
-
-
-def send_windows_key(value: str, pressed: bool) -> None:
-    vk = virtual_key(value)
-    scan = int(user32.MapVirtualKeyW(vk, 0))
-    flags = KEYEVENTF_EXTENDEDKEY if vk in EXTENDED_VKS else 0
-    if not pressed:
-        flags |= KEYEVENTF_KEYUP
-    packet = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, scan, flags, 0, 0))
-    if user32.SendInput(1, ctypes.byref(packet), ctypes.sizeof(INPUT)) != 1:
-        raise ctypes.WinError()
-
-
-def precise_wait_until(deadline: float, stop_event: threading.Event) -> bool:
-    while True:
-        remaining = deadline - time.perf_counter()
-        if remaining <= 0:
-            return stop_event.is_set()
-        if remaining > 0.003:
-            if stop_event.wait(remaining - 0.002):
-                return True
-        elif stop_event.is_set():
-            return True
-        else:
-            time.sleep(0)
 
 
 class RecorderApp:
