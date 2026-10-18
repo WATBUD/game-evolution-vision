@@ -668,6 +668,7 @@ class RecorderApp:
         self._setup_project_autosave()
         self.refresh_windows()
         self.root.after(250, self._show_main_window)
+        self.root.after(600, self._start_locked_detection_on_launch)
         self.root.after(100, self._poll_queue)
         self.root.after(1000, self._window_health_watchdog)
         self.root.bind("<Map>", self._on_root_map, add="+")
@@ -2182,6 +2183,10 @@ class RecorderApp:
         if self.detecting:
             return
         self._start_detection(continuous=False)
+
+    def _start_locked_detection_on_launch(self) -> None:
+        if self.detection_lock_var.get() and not self.detecting:
+            self._start_detection(continuous=True)
 
     def toggle_detection(self) -> None:
         if self.detecting:
