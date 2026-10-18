@@ -1071,11 +1071,6 @@ class RecorderApp:
 
         actions = ttk.Frame(detection)
         actions.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(10, 0))
-        self.detect_once_button = ttk.Button(
-            actions, text="偵測一次", command=self.detect_once,
-            style="Accent.TButton",
-        )
-        self.detect_once_button.pack(side="left")
         self.monitor_button = ttk.Button(
             actions, text="開始持續偵測", command=self.toggle_detection,
             style="Accent.TButton",
@@ -1267,8 +1262,7 @@ class RecorderApp:
 
     def _resize_detection_result(self, event: tk.Event) -> None:
         controls_width = (
-            self.detect_once_button.winfo_reqwidth()
-            + self.monitor_button.winfo_reqwidth()
+            self.monitor_button.winfo_reqwidth()
             + self.detection_lock_check.winfo_reqwidth()
             + 40
         )
@@ -2178,11 +2172,6 @@ class RecorderApp:
             hwnd, mode, target, (image_interval, text_interval), target_title, cooldown,
             alert_interval, alert_speed,
         )
-
-    def detect_once(self) -> None:
-        if self.detecting:
-            return
-        self._start_detection(continuous=False)
 
     def _start_locked_detection_on_launch(self) -> None:
         if self.detection_lock_var.get() and not self.detecting:
