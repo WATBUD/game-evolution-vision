@@ -288,6 +288,7 @@ class RecorderApp:
         self.seed_var = tk.IntVar(value=12345)
         self.reverse_even_var = tk.BooleanVar(value=False)
         self.detection_lock_var = tk.BooleanVar(value=True)
+        self.detection_lock_text_var = tk.StringVar(value="✓ 鎖定偵測")
         self.status_var = tk.StringVar(value="就緒")
         self.current_state_var = tk.StringVar(value="目前狀態：就緒")
         self.script_name_var = tk.StringVar(value="目前腳本：尚未載入")
@@ -462,6 +463,22 @@ class RecorderApp:
             background=[("active", primary_hover), ("pressed", "#0B628F")],
             foreground=[("disabled", "#D4E7F2")],
         )
+        style.configure(
+            "Monitor.TButton", font=("Microsoft JhengHei UI", 9, "bold"),
+            padding=(12, 7), foreground="#FFFFFF", background=primary,
+            bordercolor=primary, lightcolor=primary, darkcolor=primary,
+        )
+        style.map(
+            "Monitor.TButton",
+            background=[
+                ("disabled", "#C6CCD2"), ("active", primary_hover),
+                ("pressed", "#0B628F"),
+            ],
+            foreground=[("disabled", "#68727C")],
+            bordercolor=[("disabled", "#A7AFB7")],
+            lightcolor=[("disabled", "#C6CCD2")],
+            darkcolor=[("disabled", "#C6CCD2")],
+        )
         style.configure("Toolbar.TButton", padding=(9, 5))
         style.configure(
             "Danger.TButton", padding=(9, 5), foreground="#A33A32",
@@ -483,6 +500,23 @@ class RecorderApp:
             arrowcolor="#47657D", bordercolor="#B8CBD9", padding=3,
         )
         style.configure("TCheckbutton", background=surface, foreground=text_color)
+        style.layout(
+            "Lock.TCheckbutton",
+            [("Checkbutton.padding", {
+                "sticky": "nswe",
+                "children": [("Checkbutton.label", {"sticky": "nswe"})],
+            })],
+        )
+        style.configure(
+            "Lock.TCheckbutton", padding=(8, 5), borderwidth=1, relief="solid",
+            font=("Microsoft JhengHei UI", 9, "bold"),
+        )
+        style.map(
+            "Lock.TCheckbutton",
+            background=[("selected", "#DDF4E7"), ("!selected", "#EDF2F6")],
+            foreground=[("selected", "#17633A"), ("!selected", "#526575")],
+            bordercolor=[("selected", "#69B98C"), ("!selected", "#BBC8D2")],
+        )
         style.configure(
             "Info.TLabel", background="#E7F3FA", foreground="#31566F",
             padding=(12, 9), font=("Microsoft JhengHei UI", 9),
@@ -751,12 +785,13 @@ class RecorderApp:
         actions.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(10, 0))
         self.monitor_button = ttk.Button(
             actions, text="開始持續偵測", command=self.toggle_detection,
-            style="Accent.TButton",
+            style="Monitor.TButton",
         )
         self.monitor_button.pack(side="left", padx=8)
         self.detection_lock_check = ttk.Checkbutton(
-            actions, text="鎖定偵測", variable=self.detection_lock_var,
-            command=self._update_detection_lock_state,
+            actions, textvariable=self.detection_lock_text_var,
+            variable=self.detection_lock_var, command=self._update_detection_lock_state,
+            style="Lock.TCheckbutton",
         )
         self.detection_lock_check.pack(side="left")
         self.detect_result_label = ttk.Label(
@@ -1865,13 +1900,22 @@ class RecorderApp:
         self._start_detection(continuous=True)
 
     def _update_detection_lock_state(self) -> None:
+        locked = self.detection_lock_var.get()
+        self.detection_lock_text_var.set(
+            "✓ 鎖定偵測" if locked else "□ 鎖定偵測"
+        )
         locked_while_monitoring = (
             self.detecting
             and self.continuous_detection
-            and self.detection_lock_var.get()
+            and locked
         )
         self.monitor_button.configure(
-            state="disabled" if locked_while_monitoring else "normal"
+            text=(
+                "停止持續偵測（已鎖定）"
+                if locked_while_monitoring
+                else "停止持續偵測" if self.detecting else "開始持續偵測"
+            ),
+            state="disabled" if locked_while_monitoring else "normal",
         )
 
     def _start_detection(self, continuous: bool) -> None:
