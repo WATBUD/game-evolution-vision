@@ -495,7 +495,11 @@ class RecorderApp:
             foreground=text_color, arrowcolor="#47657D", bordercolor="#B8CBD9",
             padding=4,
         )
-        style.map("TCombobox", fieldbackground=[("readonly", surface)])
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", surface)],
+            foreground=[("readonly", text_color), ("disabled", "#8A9AAA")],
+        )
         style.configure(
             "TSpinbox", fieldbackground=surface, foreground=text_color,
             arrowcolor="#47657D", bordercolor="#B8CBD9", padding=3,
