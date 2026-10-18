@@ -1297,6 +1297,7 @@ class RecorderApp:
         if selected is not None:
             self.last_target_hwnd = selected
             self._schedule_project_save()
+            self._on_detection_setting_changed()
 
     def _selected_hwnd(self) -> int | None:
         index = self.window_combo.current()
