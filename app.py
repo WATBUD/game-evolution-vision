@@ -609,6 +609,7 @@ class RecorderApp:
         self.release_jitter_var = tk.DoubleVar(value=0.010)
         self.seed_var = tk.IntVar(value=12345)
         self.reverse_even_var = tk.BooleanVar(value=False)
+        self.detection_lock_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="就緒")
         self.current_state_var = tk.StringVar(value="目前狀態：就緒")
         self.script_name_var = tk.StringVar(value="目前腳本：尚未載入")
@@ -1079,6 +1080,11 @@ class RecorderApp:
             style="Accent.TButton",
         )
         self.monitor_button.pack(side="left", padx=8)
+        self.detection_lock_check = ttk.Checkbutton(
+            actions, text="鎖定偵測", variable=self.detection_lock_var,
+            command=self._update_detection_lock_state,
+        )
+        self.detection_lock_check.pack(side="left")
         self.detect_result_label = ttk.Label(
             actions, textvariable=self.detect_result_var, foreground="#0879B5",
             font=("Microsoft JhengHei UI", 9, "bold"), anchor="w", justify="left",
@@ -1262,6 +1268,7 @@ class RecorderApp:
         controls_width = (
             self.detect_once_button.winfo_reqwidth()
             + self.monitor_button.winfo_reqwidth()
+            + self.detection_lock_check.winfo_reqwidth()
             + 40
         )
         available = max(180, event.width - controls_width)
@@ -2178,10 +2185,22 @@ class RecorderApp:
 
     def toggle_detection(self) -> None:
         if self.detecting:
+            if self.continuous_detection and self.detection_lock_var.get():
+                return
             self.pending_detection_restart = False
             self.detection_stop_event.set()
             return
         self._start_detection(continuous=True)
+
+    def _update_detection_lock_state(self) -> None:
+        locked_while_monitoring = (
+            self.detecting
+            and self.continuous_detection
+            and self.detection_lock_var.get()
+        )
+        self.monitor_button.configure(
+            state="disabled" if locked_while_monitoring else "normal"
+        )
 
     def _start_detection(self, continuous: bool) -> None:
         try:
@@ -2193,6 +2212,7 @@ class RecorderApp:
         self.continuous_detection = continuous
         self.detection_stop_event.clear()
         self.monitor_button.configure(text="停止持續偵測" if continuous else "偵測中…")
+        self._update_detection_lock_state()
         self.detect_result_var.set("正在擷取目標視窗…")
         threading.Thread(
             target=self._detection_worker, args=(*settings, continuous), daemon=True
@@ -2956,11 +2976,15 @@ class RecorderApp:
                 elif kind == "detect_done":
                     if self.pending_detection_restart:
                         self.pending_detection_restart = False
-                        self.monitor_button.configure(text="正在套用新偵測設定…")
+                        self.monitor_button.configure(
+                            text="正在套用新偵測設定…", state="disabled"
+                        )
                         self.root.after(50, lambda: self._start_detection(True))
                     else:
                         self.continuous_detection = False
-                        self.monitor_button.configure(text="開始持續偵測")
+                        self.monitor_button.configure(
+                            text="開始持續偵測", state="normal"
+                        )
                 elif kind == "visual_hits":
                     hits = text if isinstance(text, list) else []
                     for target_type, key, repeat_count, playback_speed, interval in hits:
