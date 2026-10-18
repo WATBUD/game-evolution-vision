@@ -30,6 +30,7 @@ from detection import (
 )
 from input_control import (
     KeyEvent,
+    deserialize_key,
     display_key,
     is_modifier_key,
     precise_wait_until,
@@ -2497,9 +2498,6 @@ class RecorderApp:
             )
             return
         self._set_state("選擇檔案", "正在開啟腳本選擇視窗…")
-        self.root.lift()
-        self.root.focus_force()
-        self.root.attributes("-topmost", True)
         self.root.update_idletasks()
         path = ""
         remembered_path = Path(self.last_script_path) if self.last_script_path else None
@@ -2522,10 +2520,6 @@ class RecorderApp:
                 "無法開啟檔案選擇視窗", str(exc), parent=self.root
             )
             return
-        finally:
-            self.root.attributes("-topmost", False)
-            self.root.lift()
-            self.root.focus_force()
         if not path:
             self._set_state("就緒", "已取消載入腳本。")
             return
