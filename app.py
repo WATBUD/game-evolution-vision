@@ -795,7 +795,7 @@ class RecorderApp:
         self.monitor_button.pack(side="left", padx=8)
         self.detection_lock_check = ttk.Checkbutton(
             actions, textvariable=self.detection_lock_text_var,
-            variable=self.detection_lock_var, command=self._update_detection_lock_state,
+            variable=self.detection_lock_var, command=self._on_detection_lock_toggled,
             style="Lock.TCheckbutton",
         )
         self.detection_lock_check.pack(side="left")
@@ -1903,6 +1903,11 @@ class RecorderApp:
             self.detection_stop_event.set()
             return
         self._start_detection(continuous=True)
+
+    def _on_detection_lock_toggled(self) -> None:
+        self._update_detection_lock_state()
+        if self.detection_lock_var.get() and not self.detecting:
+            self._start_detection(continuous=True)
 
     def _update_detection_lock_state(self) -> None:
         locked = self.detection_lock_var.get()
