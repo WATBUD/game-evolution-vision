@@ -1928,10 +1928,16 @@ class RecorderApp:
             state="disabled" if locked_while_monitoring else "normal",
         )
 
+    def _clear_detection_lock_after_error(self) -> None:
+        self.pending_detection_restart = False
+        self.detection_lock_var.set(False)
+        self._update_detection_lock_state()
+
     def _start_detection(self, continuous: bool) -> None:
         try:
             settings = self._detection_settings()
         except ValueError as exc:
+            self._clear_detection_lock_after_error()
             messagebox.showwarning("無法開始偵測", str(exc), parent=self.root)
             return
         self.detecting = True
@@ -2690,7 +2696,10 @@ class RecorderApp:
                 elif kind == "detect_error":
                     message = str(text)
                     summary = message.splitlines()[-1] if message else "未知錯誤"
-                    self.detect_result_var.set(f"偵測失敗：{summary}")
+                    self._clear_detection_lock_after_error()
+                    self.detect_result_var.set(
+                        f"偵測失敗：{summary}；已解除鎖定偵測。"
+                    )
                     self._show_copyable_error("偵測失敗", message)
                 elif kind == "detect_done":
                     if self.pending_detection_restart:
