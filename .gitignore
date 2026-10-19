@@ -10,6 +10,7 @@ sounds/
 project_data/
 *.json
 *.log
+*.pid
 
 .idea/
 .vscode/

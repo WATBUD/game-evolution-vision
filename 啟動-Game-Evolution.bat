@@ -41,11 +41,17 @@ if not exist "app.py" (
 )
 
 echo [Game Evolution] Closing previous Game Evolution instance...
-powershell.exe -NoProfile -Command "$appPath = [IO.Path]::GetFullPath('%CD%\app.py'); Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'pythonw.exe' -and $_.CommandLine -like ('*' + $appPath + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+powershell.exe -NoProfile -Command "$pythonwPath = [IO.Path]::GetFullPath('%CD%\.venv\Scripts\pythonw.exe'); $all = @(Get-CimInstance Win32_Process); $ids = New-Object 'System.Collections.Generic.HashSet[int]'; foreach ($process in $all) { if ($process.Name -eq 'pythonw.exe' -and $process.ExecutablePath -and ([IO.Path]::GetFullPath($process.ExecutablePath) -ieq $pythonwPath)) { [void]$ids.Add([int]$process.ProcessId) } }; do { $added = $false; foreach ($process in $all) { if ($ids.Contains([int]$process.ParentProcessId) -and $ids.Add([int]$process.ProcessId)) { $added = $true } } } while ($added); $targetIds = @($ids); foreach ($processId in $targetIds) { Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue }; $deadline = (Get-Date).AddSeconds(5); do { $remaining = @(); foreach ($processId in $targetIds) { if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { $remaining += $processId } }; if ($remaining.Count -eq 0) { break }; Start-Sleep -Milliseconds 100 } while ((Get-Date) -lt $deadline); if ($remaining.Count -gt 0) { Write-Error ('Unable to stop process IDs: ' + ($remaining -join ', ')); exit 1 }"
+if errorlevel 1 (
+  echo.
+  echo [ERROR] Failed to close the previous Game Evolution instance.
+  pause
+  exit /b 1
+)
 
 echo [Game Evolution] Starting as an independent GUI process...
 echo.
-start "Game Evolution" /D "%CD%" ".venv\Scripts\pythonw.exe" "app.py" 1>>"game-evolution-error.log" 2>&1
+powershell.exe -NoProfile -Command "$process = Start-Process -FilePath '%CD%\.venv\Scripts\pythonw.exe' -ArgumentList 'app.py' -WorkingDirectory '%CD%' -RedirectStandardError '%CD%\game-evolution-error.log' -WindowStyle Hidden -PassThru; Start-Sleep -Seconds 2; if ($process.HasExited) { Write-Error ('Game Evolution exited during startup with code ' + $process.ExitCode); exit 1 }; Set-Content -LiteralPath '%CD%\game-evolution.pid' -Value $process.Id -Encoding ASCII"
 if errorlevel 1 (
   echo [ERROR] Failed to start Game Evolution.
   echo Check game-evolution-error.log for details.
@@ -53,7 +59,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [Game Evolution] Launch command completed.
+echo [Game Evolution] Previous instance closed and new instance started successfully.
 echo You may close this black window with X. The GUI will keep running.
 echo If the GUI does not appear, check: %CD%\game-evolution-error.log
 echo.
