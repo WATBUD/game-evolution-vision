@@ -127,12 +127,21 @@ def recognize_text(image: Image.Image) -> str:
 
 
 def recognize_text_for_target(image: Image.Image, target: str) -> str:
-    """OCR the whole window, then overlapping enlarged tiles for small text."""
+    """OCR the whole window, then overlapping enlarged tiles for one target."""
+    candidates = recognize_text_candidates(image, [target])
+    return max(candidates, key=lambda text: ocr_text_similarity(target, text))
+
+
+def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[str]:
+    """OCR one frame once and return text candidates shared by every target."""
     full_text = recognize_text(image)
-    best_text = full_text
-    best_score = ocr_text_similarity(target, full_text)
-    if best_score >= 1.0 or image.width <= 320 or image.height <= 240:
-        return best_text
+    candidates = [full_text]
+    unresolved = {
+        target for target in targets
+        if target and ocr_text_similarity(target, full_text) < 1.0
+    }
+    if not unresolved or image.width <= 320 or image.height <= 240:
+        return candidates
 
     tile_width = min(320, image.width)
     tile_height = min(240, image.height)
@@ -150,10 +159,11 @@ def recognize_text_for_target(image: Image.Image, target: str) -> str:
         for left in x_positions:
             tile = image.crop((left, top, left + tile_width, top + tile_height))
             tile_text = recognize_text(tile)
-            score = ocr_text_similarity(target, tile_text)
-            if score > best_score:
-                best_score = score
-                best_text = tile_text
-            if best_score >= 1.0:
-                return best_text
-    return best_text
+            candidates.append(tile_text)
+            unresolved = {
+                target for target in unresolved
+                if ocr_text_similarity(target, tile_text) < 1.0
+            }
+            if not unresolved:
+                return candidates
+    return candidates

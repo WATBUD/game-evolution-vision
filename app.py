@@ -26,7 +26,7 @@ from detection import (
     find_template,
     normalize_ocr_text,
     ocr_text_similarity,
-    recognize_text_for_target,
+    recognize_text_candidates,
 )
 from input_control import (
     KeyEvent,
@@ -2045,9 +2045,14 @@ class RecorderApp:
         results: list[tuple[str, float, float, str]] = []
         visual_hits: list[tuple[str, str, int, float, float]] = []
         now = time.monotonic()
+        candidates = recognize_text_candidates(
+            image, [normalized_text for _raw, normalized_text, *_rest in targets]
+        )
         for raw_text, normalized_text, repeat_count, threshold, key in targets:
-            recognized = recognize_text_for_target(image, normalized_text)
-            score = ocr_text_similarity(normalized_text, recognized)
+            score, recognized = max(
+                (ocr_text_similarity(normalized_text, text), text)
+                for text in candidates
+            )
             results.append((raw_text, score, threshold, recognized))
             if score < threshold or now < next_alert_at.get(key, 0.0):
                 continue
