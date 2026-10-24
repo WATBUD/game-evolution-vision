@@ -279,6 +279,8 @@ class RecorderApp:
         self.detection_stop_event = threading.Event()
         self.ui_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.alert_sound_lock = threading.Lock()
+        self.alert_cancel_condition = threading.Condition()
+        self.alert_generation = 0
 
         self.window_var = tk.StringVar()
         self.repeat_var = tk.IntVar(value=40)
@@ -2354,9 +2356,11 @@ class RecorderApp:
             sound_path = SOUND_DIR / f"gkey_alert_{suffix}db_single_{speed_suffix}.wav"
             if not sound_path.exists():
                 create_alert_sound(sound_path, float(volume_db), playback_speed)
+            with self.alert_cancel_condition:
+                generation = self.alert_generation
             threading.Thread(
                 target=self._play_alert_sequence,
-                args=(sound_path, repeat_count, interval, playback_speed),
+                args=(sound_path, repeat_count, interval, playback_speed, generation),
                 daemon=True,
             ).start()
         except (ValueError, tk.TclError):
@@ -2371,16 +2375,43 @@ class RecorderApp:
 
     def _play_alert_sequence(
         self, sound_path: Path, repeat_count: int, interval: float,
-        playback_speed: float,
+        playback_speed: float, generation: int,
     ) -> None:
         with self.alert_sound_lock:
             for index in range(repeat_count):
+                if self._wait_for_alert_or_cancel(0, generation):
+                    return
                 winsound.PlaySound(
                     str(sound_path),
-                    winsound.SND_FILENAME | winsound.SND_NODEFAULT,
+                    winsound.SND_FILENAME | winsound.SND_NODEFAULT | winsound.SND_ASYNC,
                 )
+                if self._wait_for_alert_or_cancel(
+                    ALERT_BASE_DURATION / playback_speed, generation
+                ):
+                    winsound.PlaySound(None, 0)
+                    return
                 if index + 1 < repeat_count and interval > 0:
-                    time.sleep(interval / playback_speed)
+                    if self._wait_for_alert_or_cancel(
+                        interval / playback_speed, generation
+                    ):
+                        winsound.PlaySound(None, 0)
+                        return
+
+    def _wait_for_alert_or_cancel(self, seconds: float, generation: int) -> bool:
+        deadline = time.monotonic() + max(0.0, seconds)
+        with self.alert_cancel_condition:
+            while self.alert_generation == generation:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self.alert_cancel_condition.wait(remaining)
+            return True
+
+    def _cancel_alert_sound(self) -> None:
+        with self.alert_cancel_condition:
+            self.alert_generation += 1
+            self.alert_cancel_condition.notify_all()
+        winsound.PlaySound(None, 0)
 
     def start_recording(self) -> None:
         if self.playing or self.recording:
@@ -2422,6 +2453,8 @@ class RecorderApp:
         was_playing = self.playing
         self.recording = False
         self.stop_event.set()
+        if was_recording or was_playing:
+            self._cancel_alert_sound()
         if self.listener:
             self.listener.stop()
             self.listener = None
