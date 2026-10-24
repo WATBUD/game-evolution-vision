@@ -50,6 +50,7 @@ SOUND_DIR = APP_DIR / "sounds"
 PROJECT_DIR = APP_DIR / "project_data"
 PROJECT_TEMPLATE_DIR = PROJECT_DIR / "templates"
 PROJECT_FILE = PROJECT_DIR / "gkey_project.json"
+MAX_ALERT_REPEAT = 40
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 kernel32 = ctypes.windll.kernel32
@@ -856,7 +857,7 @@ class RecorderApp:
         ttk.Label(
             detection,
             text=(
-                "設定上限：相似度 100%（1.00）｜每項圖片／文字提示音 20 次｜"
+                f"設定上限：相似度 100%（1.00）｜每項圖片／文字提示音 {MAX_ALERT_REPEAT} 次｜"
                 "提示音倍速 4.00×\n"
                 "每張圖片與每項文字皆可獨立設定；圖片可試聽提示音，"
                 "預設命中冷卻 40 秒"
@@ -1236,7 +1237,7 @@ class RecorderApp:
             loaded: list[tuple[str, Image.Image]] = []
             loaded_stats: dict[str, dict[str, object]] = {}
             alert = data.get("alert", {})
-            legacy_repeat = max(1, min(20, int(alert.get("repeat", 1))))
+            legacy_repeat = max(1, min(MAX_ALERT_REPEAT, int(alert.get("repeat", 1))))
             for item in data.get("templates", []):
                 image_path = PROJECT_DIR / str(item["file"])
                 with Image.open(image_path) as source:
@@ -1247,7 +1248,7 @@ class RecorderApp:
                     "last_detected": str(item.get("last_detected", "")),
                     "count": int(item.get("count", 0)),
                     "alert_repeat": max(
-                        1, min(20, int(item.get("alert_repeat", legacy_repeat)))
+                        1, min(MAX_ALERT_REPEAT, int(item.get("alert_repeat", legacy_repeat)))
                     ),
                     "similarity": float(item.get(
                         "similarity", data.get("detection", {}).get("similarity", 0.85)
@@ -1283,7 +1284,9 @@ class RecorderApp:
                     {
                         "text": str(item.get("text", "")).strip(),
                         "similarity": float(item.get("similarity", 0.70)),
-                        "alert_repeat": max(1, min(20, int(item.get("alert_repeat", 1)))),
+                        "alert_repeat": max(
+                            1, min(MAX_ALERT_REPEAT, int(item.get("alert_repeat", 1)))
+                        ),
                     }
                     for item in saved_text_targets
                     if isinstance(item, dict) and str(item.get("text", "")).strip()
@@ -1303,7 +1306,7 @@ class RecorderApp:
                 float(detection.get("ocr_similarity", 0.70))
             )
             self.alert_volume_db_var.set(int(alert.get("volume_db", -6)))
-            self.alert_repeat_var.set(int(alert.get("repeat", 1)))
+            self.alert_repeat_var.set(legacy_repeat)
             self.alert_interval_var.set(float(alert.get("interval", 0.0)))
             self.alert_speed_var.set(float(alert.get("speed", ALERT_PLAYBACK_SPEED)))
             self.alert_cooldown_var.set(
@@ -1351,7 +1354,7 @@ class RecorderApp:
         frame = frames.get(key)
         if frame is None or not frame.winfo_exists():
             return
-        repeat_count = max(1, min(20, int(repeat_count)))
+        repeat_count = max(1, min(MAX_ALERT_REPEAT, int(repeat_count)))
         playback_speed = max(0.25, min(4.0, float(playback_speed)))
         cycle_ms = max(
             140,
@@ -1458,12 +1461,13 @@ class RecorderApp:
             ttk.Label(row, text="音效次數", foreground="#B35A00").pack(side="left")
             repeat_var = tk.IntVar(value=int(item.get("alert_repeat", 1)))
             repeat_spin = ttk.Spinbox(
-                row, from_=1, to=20, increment=1, textvariable=repeat_var, width=5,
+                row, from_=1, to=MAX_ALERT_REPEAT, increment=1,
+                textvariable=repeat_var, width=5,
             )
             repeat_spin.pack(side="left", padx=(6, 10))
             self._bind_upper_limit(
-                repeat_spin, repeat_var, 20,
-                "文字提示音次數", "20 次", integer=True,
+                repeat_spin, repeat_var, MAX_ALERT_REPEAT,
+                "文字提示音次數", f"{MAX_ALERT_REPEAT} 次", integer=True,
             )
             ttk.Button(
                 row, text="移除", style="Danger.TButton",
@@ -1536,7 +1540,9 @@ class RecorderApp:
             repeat_var = self.template_repeat_vars.get(key)
             if repeat_var is None:
                 repeat_var = tk.IntVar(
-                    value=max(1, min(20, int(stat.get("alert_repeat", 1))))
+                    value=max(
+                        1, min(MAX_ALERT_REPEAT, int(stat.get("alert_repeat", 1)))
+                    )
                 )
                 repeat_var.trace_add(
                     "write",
@@ -1569,13 +1575,13 @@ class RecorderApp:
             )
             ttk.Label(repeat_row, text="音效次數", foreground="#B35A00").pack(side="left")
             repeat_spin = ttk.Spinbox(
-                repeat_row, from_=1, to=20, increment=1,
+                repeat_row, from_=1, to=MAX_ALERT_REPEAT, increment=1,
                 textvariable=repeat_var, width=4,
             )
             repeat_spin.pack(side="left", padx=(6, 0))
             self._bind_upper_limit(
-                repeat_spin, repeat_var, 20,
-                "圖片提示音次數", "20 次", integer=True,
+                repeat_spin, repeat_var, MAX_ALERT_REPEAT,
+                "圖片提示音次數", f"{MAX_ALERT_REPEAT} 次", integer=True,
             )
             card_actions = ttk.Frame(card)
             card_actions.grid(row=0, column=3, rowspan=2, sticky="e")
@@ -1628,7 +1634,7 @@ class RecorderApp:
             repeat_count = int(variable.get())
         except (ValueError, tk.TclError):
             return
-        if not 1 <= repeat_count <= 20:
+        if not 1 <= repeat_count <= MAX_ALERT_REPEAT:
             return
         stat = self.template_stats.setdefault(
             key, {
@@ -1660,7 +1666,7 @@ class RecorderApp:
 
     def _template_repeat_count(self, key: str) -> int:
         stat = self.template_stats.get(key, {})
-        return max(1, min(20, int(stat.get("alert_repeat", 1))))
+        return max(1, min(MAX_ALERT_REPEAT, int(stat.get("alert_repeat", 1))))
 
     def _template_similarity(self, key: str) -> float:
         stat = self.template_stats.get(key, {})
@@ -1941,7 +1947,7 @@ class RecorderApp:
                     repeat_count = int(item.get("alert_repeat", 1))
                     if (
                         not normalized_text or not 0.1 <= text_threshold <= 1.0
-                        or not 1 <= repeat_count <= 20
+                        or not 1 <= repeat_count <= MAX_ALERT_REPEAT
                     ):
                         raise ValueError("請確認文字列表中的相似度與音效次數。")
                     text_target.append((
@@ -2425,7 +2431,7 @@ class RecorderApp:
                 playback_speed = float(self.alert_speed_var.get())
             if (
                 not -40 <= volume_db <= 0
-                or not 1 <= repeat_count <= 20
+                or not 1 <= repeat_count <= MAX_ALERT_REPEAT
                 or not 0.0 <= interval <= 60.0
                 or not 0.25 <= playback_speed <= 4.0
             ):
@@ -2445,7 +2451,7 @@ class RecorderApp:
         except (ValueError, tk.TclError):
             messagebox.showwarning(
                 "提示音設定錯誤",
-                "音量須介於 -40 到 0 dB，次數介於 1 到 20，"
+                f"音量須介於 -40 到 0 dB，次數介於 1 到 {MAX_ALERT_REPEAT}，"
                 "間隔介於 0 到 60 秒，倍速介於 0.25 到 4.00。",
                 parent=self.root,
             )
@@ -2850,7 +2856,9 @@ class RecorderApp:
                     hit = text if isinstance(text, dict) else {"text": str(text)}
                     hit_text = str(hit.get("text", "偵測命中"))
                     template_name = str(hit.get("template", "圖片"))
-                    repeat_count = max(1, min(20, int(hit.get("repeat_count", 1))))
+                    repeat_count = max(
+                        1, min(MAX_ALERT_REPEAT, int(hit.get("repeat_count", 1)))
+                    )
                     playback_speed = max(
                         0.25, min(4.0, float(hit.get("playback_speed", 2.0)))
                     )
