@@ -850,8 +850,14 @@ class RecorderApp:
         )
         ttk.Label(
             detection,
-            text="每張圖片與每項文字皆可獨立設定；圖片可試聽提示音，預設命中冷卻 40 秒",
+            text=(
+                "設定上限：相似度 100%（1.00）｜每項圖片／文字提示音 20 次｜"
+                "提示音倍速 4.00×\n"
+                "每張圖片與每項文字皆可獨立設定；圖片可試聽提示音，"
+                "預設命中冷卻 40 秒"
+            ),
             foreground="#526575",
+            justify="left",
         ).grid(row=3, column=0, columnspan=7, sticky="w", pady=(6, 0))
         detection.columnconfigure(3, weight=1)
         detection.rowconfigure(6, weight=1)
@@ -954,6 +960,14 @@ class RecorderApp:
             text="雙數輪左右相反",
             variable=self.reverse_even_var,
         ).grid(row=2, column=3, columnspan=2, sticky="w", padx=(8, 0), pady=(8, 0))
+        ttk.Label(
+            playback,
+            text=(
+                "設定上限：播放次數 9,999 次｜腳本速度 10.00×｜"
+                "按下／放開抖動 0.050 秒"
+            ),
+            foreground="#526575",
+        ).grid(row=3, column=0, columnspan=5, sticky="w", pady=(10, 0))
 
         ttk.Label(
             playback_tab,
