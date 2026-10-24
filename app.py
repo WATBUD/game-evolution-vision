@@ -823,10 +823,15 @@ class RecorderApp:
         ttk.Label(alert_settings, text="倍速", foreground="#B35A00").pack(
             side="left", padx=(12, 0)
         )
-        ttk.Spinbox(
+        alert_speed_spin = ttk.Spinbox(
             alert_settings, from_=0.25, to=4.0, increment=0.25,
             format="%.2f", textvariable=self.alert_speed_var, width=5,
-        ).pack(side="left", padx=(8, 0))
+        )
+        alert_speed_spin.pack(side="left", padx=(8, 0))
+        self._bind_upper_limit(
+            alert_speed_spin, self.alert_speed_var, 4.0,
+            "提示音倍速", "4.00×",
+        )
         ttk.Label(alert_settings, text="間隔", foreground="#B35A00").pack(
             side="left", padx=(12, 0)
         )
@@ -921,19 +926,36 @@ class RecorderApp:
         playback = ttk.LabelFrame(playback_tab, text="播放", padding=12)
         playback.pack(fill="x")
         ttk.Label(playback, text="播放次數").grid(row=0, column=0, sticky="w")
-        ttk.Spinbox(playback, from_=1, to=9999, textvariable=self.repeat_var, width=8).grid(row=0, column=1, padx=(8, 24))
+        playback_repeat_spin = ttk.Spinbox(
+            playback, from_=1, to=9999, textvariable=self.repeat_var, width=8
+        )
+        playback_repeat_spin.grid(row=0, column=1, padx=(8, 24))
+        self._bind_upper_limit(
+            playback_repeat_spin, self.repeat_var, 9999,
+            "腳本播放次數", "9,999 次", integer=True,
+        )
         ttk.Label(playback, text="速度範圍").grid(row=0, column=2, sticky="w")
         speed_range = ttk.Frame(playback)
         speed_range.grid(row=0, column=3, padx=8)
-        ttk.Spinbox(
+        speed_min_spin = ttk.Spinbox(
             speed_range, from_=0.10, to=10.0, increment=0.05,
             format="%.2f", textvariable=self.speed_min_var, width=6
-        ).pack(side="left")
+        )
+        speed_min_spin.pack(side="left")
+        self._bind_upper_limit(
+            speed_min_spin, self.speed_min_var, 10.0,
+            "腳本最低速度", "10.00×",
+        )
         ttk.Label(speed_range, text=" ～ ").pack(side="left")
-        ttk.Spinbox(
+        speed_max_spin = ttk.Spinbox(
             speed_range, from_=0.10, to=10.0, increment=0.05,
             format="%.2f", textvariable=self.speed_max_var, width=6
-        ).pack(side="left")
+        )
+        speed_max_spin.pack(side="left")
+        self._bind_upper_limit(
+            speed_max_spin, self.speed_max_var, 10.0,
+            "腳本最高速度", "10.00×",
+        )
         self.play_button = ttk.Button(
             playback, textvariable=self.play_button_text, command=self.start_playback,
             style="Accent.TButton",
@@ -993,6 +1015,29 @@ class RecorderApp:
         direction = -1 if event.delta > 0 else 1
         canvas.yview_scroll(direction * 3, "units")
         return "break"
+
+    def _bind_upper_limit(
+        self, widget: tk.Widget, variable: tk.Variable, maximum: float,
+        field_name: str, maximum_text: str, integer: bool = False,
+    ) -> None:
+        def validate(_event: tk.Event | None = None) -> None:
+            try:
+                value = float(variable.get())
+                invalid = value != value or value > maximum
+            except (ValueError, tk.TclError):
+                invalid = True
+            if not invalid:
+                return
+            variable.set(int(maximum) if integer else maximum)
+            messagebox.showwarning(
+                "設定值超過上限",
+                f"「{field_name}」最高上限為 {maximum_text}。\n"
+                f"輸入值已自動調整為 {maximum_text}。",
+                parent=self.root,
+            )
+
+        widget.bind("<FocusOut>", validate, add="+")
+        widget.bind("<Return>", validate, add="+")
 
     def _resize_detection_result(self, event: tk.Event) -> None:
         controls_width = (
@@ -1401,15 +1446,25 @@ class RecorderApp:
             row.pack(fill="x", padx=1, pady=1)
             ttk.Label(row, text="相似度", foreground="#7352A3").pack(side="left")
             similarity_var = tk.DoubleVar(value=float(item.get("similarity", 0.70)))
-            ttk.Spinbox(
+            similarity_spin = ttk.Spinbox(
                 row, from_=0.10, to=1.00, increment=0.01, format="%.2f",
                 textvariable=similarity_var, width=6,
-            ).pack(side="left", padx=(6, 14))
+            )
+            similarity_spin.pack(side="left", padx=(6, 14))
+            self._bind_upper_limit(
+                similarity_spin, similarity_var, 1.0,
+                "文字相似度", "100%（1.00）",
+            )
             ttk.Label(row, text="音效次數", foreground="#B35A00").pack(side="left")
             repeat_var = tk.IntVar(value=int(item.get("alert_repeat", 1)))
-            ttk.Spinbox(
+            repeat_spin = ttk.Spinbox(
                 row, from_=1, to=20, increment=1, textvariable=repeat_var, width=5,
-            ).pack(side="left", padx=(6, 10))
+            )
+            repeat_spin.pack(side="left", padx=(6, 10))
+            self._bind_upper_limit(
+                repeat_spin, repeat_var, 20,
+                "文字提示音次數", "20 次", integer=True,
+            )
             ttk.Button(
                 row, text="移除", style="Danger.TButton",
                 command=lambda item_index=index: self.remove_text_target(item_index)
@@ -1503,15 +1558,25 @@ class RecorderApp:
             repeat_row = ttk.Frame(card)
             repeat_row.grid(row=0, column=2, rowspan=2, padx=(0, 14), sticky="e")
             ttk.Label(repeat_row, text="相似度", foreground="#0879B5").pack(side="left")
-            ttk.Spinbox(
+            similarity_spin = ttk.Spinbox(
                 repeat_row, from_=0.10, to=1.00, increment=0.01, format="%.2f",
                 textvariable=similarity_var, width=6,
-            ).pack(side="left", padx=(6, 14))
+            )
+            similarity_spin.pack(side="left", padx=(6, 14))
+            self._bind_upper_limit(
+                similarity_spin, similarity_var, 1.0,
+                "圖片相似度", "100%（1.00）",
+            )
             ttk.Label(repeat_row, text="音效次數", foreground="#B35A00").pack(side="left")
-            ttk.Spinbox(
+            repeat_spin = ttk.Spinbox(
                 repeat_row, from_=1, to=20, increment=1,
                 textvariable=repeat_var, width=4,
-            ).pack(side="left", padx=(6, 0))
+            )
+            repeat_spin.pack(side="left", padx=(6, 0))
+            self._bind_upper_limit(
+                repeat_spin, repeat_var, 20,
+                "圖片提示音次數", "20 次", integer=True,
+            )
             card_actions = ttk.Frame(card)
             card_actions.grid(row=0, column=3, rowspan=2, sticky="e")
             ttk.Button(
