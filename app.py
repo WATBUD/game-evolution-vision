@@ -2037,6 +2037,14 @@ class RecorderApp:
             target=self._detection_worker, args=(*settings, continuous), daemon=True
         ).start()
 
+    def _detection_effects_enabled(self) -> bool:
+        return self.playing and not self.stop_event.is_set()
+
+    def _detection_result_with_state(self, text: str) -> str:
+        if self._detection_effects_enabled():
+            return text
+        return f"{text}｜待命中（腳本未播放，不觸發音效）"
+
     def _detect_text_target_list(
         self, image: Image.Image, targets: list[tuple[str, str, int, float, str]],
         target_title: str, next_alert_at: dict[str, float], cooldown: float,
@@ -2054,7 +2062,11 @@ class RecorderApp:
                 for text in candidates
             )
             results.append((raw_text, score, threshold, recognized))
-            if score < threshold or now < next_alert_at.get(key, 0.0):
+            if (
+                not self._detection_effects_enabled()
+                or score < threshold
+                or now < next_alert_at.get(key, 0.0)
+            ):
                 continue
             visual_hits.append((
                 "text", key, repeat_count, alert_speed, alert_interval,
@@ -2126,7 +2138,7 @@ class RecorderApp:
             ]
             matched_keys = {result[3] for result in image_matches}
             new_matches = matched_keys - previous_matches
-            if new_matches:
+            if new_matches and self._detection_effects_enabled():
                 self.ui_queue.put(("template_hits", list(new_matches)))
 
             if image_results:
@@ -2147,7 +2159,10 @@ class RecorderApp:
                 image_summary = "尚未設定搜尋圖片"
 
             for matched_name, _score, _location, key, repeat_count, _threshold in image_matches:
-                if now < next_alert_at.get(key, 0.0):
+                if (
+                    not self._detection_effects_enabled()
+                    or now < next_alert_at.get(key, 0.0)
+                ):
                     continue
                 self.ui_queue.put((
                     "visual_hits",
@@ -2192,8 +2207,14 @@ class RecorderApp:
         next_text_scan = 0.0
         image_summary = "等待圖片掃描"
         text_summary = "等待文字掃描"
+        effects_were_enabled = self._detection_effects_enabled()
         try:
             while not self.detection_stop_event.is_set():
+                effects_enabled = self._detection_effects_enabled()
+                if effects_enabled and not effects_were_enabled:
+                    previous_matches.clear()
+                    next_alert_at.clear()
+                effects_were_enabled = effects_enabled
                 started = time.monotonic()
                 image: Image.Image | None = None
                 last_capture_error: Exception | None = None
@@ -2252,7 +2273,9 @@ class RecorderApp:
                     if not results:
                         previous_matches.clear()
                         text = f"[{target_title}] 尚未設定搜尋圖片"
-                        self.ui_queue.put(("detect_result", text))
+                        self.ui_queue.put((
+                            "detect_result", self._detection_result_with_state(text),
+                        ))
                         if not continuous:
                             break
                         if self.detection_stop_event.wait(interval):
@@ -2264,7 +2287,7 @@ class RecorderApp:
                     )
                     matched_keys = {result[3] for result in matched}
                     new_matches = matched_keys - previous_matches
-                    if new_matches:
+                    if new_matches and self._detection_effects_enabled():
                         self.ui_queue.put(("template_hits", list(new_matches)))
                     previous_matches = matched_keys
                     hit = bool(matched)
@@ -2281,7 +2304,7 @@ class RecorderApp:
                             f"[{target_title}] {len(results)} 張皆未出現｜最高 {best_score:.1%}"
                             f"（{best_name}；門檻 {best_threshold:.0%}）"
                         )
-                    if hit:
+                    if hit and self._detection_effects_enabled():
                         now = time.monotonic()
                         for matched_name, _score, _location, key, repeat_count, _threshold in matched:
                             if now < next_alert_at.get(key, 0.0):
@@ -2318,7 +2341,9 @@ class RecorderApp:
                         f"[{target_title}] {'有出現' if count else '未出現'}｜"
                         f"符合 {count:,} 像素（{ratio:.4%}）"
                     )
-                self.ui_queue.put(("detect_result", text))
+                self.ui_queue.put((
+                    "detect_result", self._detection_result_with_state(text),
+                ))
                 if not continuous:
                     break
                 if mode == "ALL":
@@ -2837,6 +2862,8 @@ class RecorderApp:
                             text="開始持續偵測", state="normal"
                         )
                 elif kind == "visual_hits":
+                    if not self._detection_effects_enabled():
+                        continue
                     hits = text if isinstance(text, list) else []
                     for target_type, key, repeat_count, playback_speed, interval in hits:
                         self._flash_detection_card(
@@ -2844,6 +2871,8 @@ class RecorderApp:
                             float(playback_speed), float(interval),
                         )
                 elif kind == "template_hits":
+                    if not self._detection_effects_enabled():
+                        continue
                     detected_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     keys = text if isinstance(text, list) else []
                     for key in keys:
@@ -2858,6 +2887,8 @@ class RecorderApp:
                         self._refresh_template_previews()
                         self.save_project(notify=False)
                 elif kind == "detection_hit":
+                    if not self._detection_effects_enabled():
+                        continue
                     hit = text if isinstance(text, dict) else {"text": str(text)}
                     hit_text = str(hit.get("text", "偵測命中"))
                     template_name = str(hit.get("template", "圖片"))
@@ -2868,22 +2899,10 @@ class RecorderApp:
                         0.25, min(4.0, float(hit.get("playback_speed", 2.0)))
                     )
                     self.play_alert_sound(repeat_count, playback_speed)
-                    if self.playing:
-                        self.status_var.set(
-                            f"{hit_text}；{template_name} 播放 {repeat_count} 次提示音，"
-                            "偵測與腳本繼續執行。"
-                        )
-                    elif self.recording:
-                        self.status_var.set(
-                            f"{hit_text}；{template_name} 播放 {repeat_count} 次提示音，"
-                            "偵測與錄製繼續進行。"
-                        )
-                    else:
-                        self._set_state(
-                            "偵測命中",
-                            f"{hit_text}；{template_name} 播放 {repeat_count} 次提示音，"
-                            "持續偵測保持運行。",
-                        )
+                    self.status_var.set(
+                        f"{hit_text}；{template_name} 播放 {repeat_count} 次提示音，"
+                        "偵測與腳本繼續執行。"
+                    )
                 elif kind == "picked_color":
                     self.color_pick_listener = None
                     self.color_var.set(text)
