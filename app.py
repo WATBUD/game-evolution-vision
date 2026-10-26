@@ -345,6 +345,7 @@ class RecorderApp:
         self.window_iconic_since: float | None = None
         self.detection_log_store = DetectionLogStore(DETECTION_LOG_FILE)
         self.detection_log_entries = self.detection_log_store.load()
+        self.log_clear_days_var = tk.StringVar(value="1")
 
         CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
         SOUND_DIR.mkdir(parents=True, exist_ok=True)
@@ -1043,6 +1044,14 @@ class RecorderApp:
             toolbar, text="清除日誌", command=self._clear_detection_log,
             style="Danger.TButton",
         ).pack(side="right", padx=(0, 6))
+        ttk.Button(
+            toolbar, text="清除最近天數", command=self._clear_recent_detection_logs,
+            style="Danger.TButton",
+        ).pack(side="right", padx=(0, 6))
+        ttk.Entry(
+            toolbar, textvariable=self.log_clear_days_var, width=6,
+        ).pack(side="right", padx=(4, 0))
+        ttk.Label(toolbar, text="天內").pack(side="right")
 
         table = ttk.Frame(parent)
         table.pack(fill="both", expand=True)
@@ -1188,6 +1197,36 @@ class RecorderApp:
             return
         self.detection_log_entries.clear()
         self.detection_log_tree.delete(*self.detection_log_tree.get_children())
+
+    def _clear_recent_detection_logs(self) -> None:
+        try:
+            days = float(self.log_clear_days_var.get())
+            if days <= 0 or days != days or days == float("inf"):
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning(
+                "天數格式錯誤", "請輸入大於 0 的有效數字，例如 1、2、3 或 0.5。",
+                parent=self.root,
+            )
+            return
+        display_days = f"{days:g}"
+        if not messagebox.askyesno(
+            "清除最近天數的日誌",
+            f"確定要清除最近 {display_days} 天內的所有日誌文字與命中圖片嗎？",
+            parent=self.root,
+        ):
+            return
+        try:
+            removed = self.detection_log_store.clear_within_days(days)
+        except (OSError, ValueError) as exc:
+            self._show_copyable_error("無法清除偵測日誌", str(exc))
+            return
+        self._refresh_detection_log()
+        messagebox.showinfo(
+            "清除完成",
+            f"已清除最近 {display_days} 天內的 {removed} 筆日誌及相關命中圖片。",
+            parent=self.root,
+        )
 
     def _record_detection_log(self, hit: dict[str, object]) -> None:
         try:

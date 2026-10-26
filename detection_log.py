@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from PIL import Image
@@ -86,3 +86,47 @@ class DetectionLogStore:
                 for pattern in ("*.jpg", "*.png"):
                     for path in self.evidence_dir.glob(pattern):
                         path.unlink(missing_ok=True)
+
+    def clear_within_days(self, days: float) -> int:
+        if days <= 0:
+            raise ValueError("days must be greater than zero")
+        now = datetime.now().astimezone()
+        try:
+            cutoff = now - timedelta(days=days)
+        except OverflowError:
+            cutoff = datetime.min.replace(tzinfo=now.tzinfo)
+        retained: list[dict[str, str]] = []
+        removed: list[dict[str, str]] = []
+        for entry in self.load():
+            try:
+                timestamp = datetime.fromisoformat(entry.get("timestamp", ""))
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.astimezone()
+            except ValueError:
+                retained.append(entry)
+                continue
+            (removed if timestamp >= cutoff else retained).append(entry)
+
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+            with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+                for entry in retained:
+                    handle.write(
+                        json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n"
+                    )
+                handle.flush()
+            temporary.replace(self.path)
+            evidence_root = self.evidence_dir.resolve()
+            for entry in removed:
+                evidence = entry.get("evidence", "")
+                if not evidence:
+                    continue
+                evidence_path = Path(evidence)
+                try:
+                    resolved = evidence_path.resolve()
+                    resolved.relative_to(evidence_root)
+                except (OSError, ValueError):
+                    continue
+                resolved.unlink(missing_ok=True)
+        return len(removed)
