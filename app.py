@@ -1077,11 +1077,47 @@ class RecorderApp:
         self.detection_log_tree.bind(
             "<Double-1>", lambda _event: self._open_selected_detection_evidence(),
         )
+        self.detection_log_tree.bind("<Motion>", self._show_detection_log_tooltip)
+        self.detection_log_tree.bind("<Leave>", self._hide_detection_log_tooltip)
+        self.detection_log_tooltip: tk.Toplevel | None = None
+        self.detection_log_tooltip_key = ""
         vertical.grid(row=0, column=1, sticky="ns")
         horizontal.grid(row=1, column=0, sticky="ew")
         table.rowconfigure(0, weight=1)
         table.columnconfigure(0, weight=1)
         self._refresh_detection_log()
+
+    def _show_detection_log_tooltip(self, event: tk.Event) -> None:
+        tree = self.detection_log_tree
+        row = tree.identify_row(event.y)
+        column = tree.identify_column(event.x)
+        if not row or column != "#4":
+            self._hide_detection_log_tooltip()
+            return
+        values = tree.item(row, "values")
+        content = str(values[3]) if len(values) > 3 else ""
+        key = f"{row}:{content}"
+        if not content or key == self.detection_log_tooltip_key:
+            return
+        self._hide_detection_log_tooltip()
+        tooltip = tk.Toplevel(self.root)
+        tooltip.overrideredirect(True)
+        tooltip.attributes("-topmost", True)
+        tk.Label(
+            tooltip, text=content, justify="left", anchor="w", wraplength=720,
+            background="#FFFBE6", foreground="#17324D", relief="solid",
+            borderwidth=1, padx=9, pady=6,
+            font=("Microsoft JhengHei UI", 9),
+        ).pack()
+        tooltip.geometry(f"+{tree.winfo_pointerx() + 14}+{tree.winfo_pointery() + 14}")
+        self.detection_log_tooltip = tooltip
+        self.detection_log_tooltip_key = key
+
+    def _hide_detection_log_tooltip(self, _event: tk.Event | None = None) -> None:
+        if getattr(self, "detection_log_tooltip", None) is not None:
+            self.detection_log_tooltip.destroy()
+            self.detection_log_tooltip = None
+        self.detection_log_tooltip_key = ""
 
     @staticmethod
     def _format_log_timestamp(value: str) -> str:

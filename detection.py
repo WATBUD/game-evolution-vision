@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from difflib import SequenceMatcher
 import math
+import re
 import threading
 import unicodedata
 
@@ -54,22 +55,43 @@ def normalize_ocr_text(value: str) -> str:
 
 
 def ocr_text_similarity(target: str, recognized: str) -> float:
-    """Return the best partial fuzzy-match score for OCR text."""
+    """Return a token-aware fuzzy-match score for OCR text."""
     needle = normalize_ocr_text(target)
     haystack = normalize_ocr_text(recognized)
     if not needle or not haystack:
         return 0.0
     if needle in haystack:
         return 1.0
-    best = SequenceMatcher(None, needle, haystack).ratio()
-    if len(needle) <= 4:
-        minimum = maximum = min(len(needle), len(haystack))
-    else:
-        minimum = max(1, len(needle) - 2)
-        maximum = min(len(haystack), len(needle) + 2)
-    for length in range(minimum, maximum + 1):
-        for start in range(0, len(haystack) - length + 1):
-            candidate = haystack[start:start + length]
+
+    # Do not slide across the whitespace-stripped full OCR result. That allowed
+    # unrelated letters from several words to combine into a false 70% match.
+    tokens = [
+        normalize_ocr_text(token)
+        for token in re.findall(r"[^\W_]+", recognized, flags=re.UNICODE)
+    ]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return 0.0
+
+    target_token_count = max(1, len(re.findall(r"[^\W_]+", target, flags=re.UNICODE)))
+    candidates: set[str] = set(tokens)
+    max_join = min(len(tokens), target_token_count + 1)
+    for count in range(2, max_join + 1):
+        for start in range(len(tokens) - count + 1):
+            candidates.add("".join(tokens[start:start + count]))
+
+    best = 0.0
+    for candidate in candidates:
+        if needle in candidate:
+            return 1.0
+        if len(candidate) > len(needle) + 2:
+            minimum = max(1, len(needle) - 1)
+            maximum = min(len(candidate), len(needle) + 1)
+            for length in range(minimum, maximum + 1):
+                for start in range(len(candidate) - length + 1):
+                    segment = candidate[start:start + length]
+                    best = max(best, SequenceMatcher(None, needle, segment).ratio())
+        else:
             best = max(best, SequenceMatcher(None, needle, candidate).ratio())
     return best
 
