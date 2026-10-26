@@ -1062,10 +1062,11 @@ class RecorderApp:
             "score": 120, "window": 170, "evidence": 90,
         }
         for column in columns:
-            self.detection_log_tree.heading(column, text=headings[column])
+            self.detection_log_tree.heading(
+                column, text=headings[column], anchor="w",
+            )
             self.detection_log_tree.column(
-                column, width=widths[column], minwidth=55,
-                anchor="center" if column in {"time", "type"} else "w",
+                column, width=widths[column], minwidth=55, anchor="w",
             )
         vertical = ttk.Scrollbar(table, orient="vertical", command=self.detection_log_tree.yview)
         horizontal = ttk.Scrollbar(table, orient="horizontal", command=self.detection_log_tree.xview)
