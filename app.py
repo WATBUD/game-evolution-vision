@@ -1076,8 +1076,10 @@ class RecorderApp:
         except ValueError:
             return value
 
-    def _insert_detection_log_entry(self, entry: dict[str, str]) -> None:
-        self.detection_log_tree.insert("", 0, values=(
+    def _insert_detection_log_entry(
+        self, entry: dict[str, str], index: str | int = 0,
+    ) -> None:
+        self.detection_log_tree.insert("", index, values=(
             self._format_log_timestamp(entry.get("timestamp", "")),
             entry.get("type", ""), entry.get("content", ""),
             entry.get("window", ""), entry.get("detail", ""),
@@ -1085,9 +1087,12 @@ class RecorderApp:
 
     def _refresh_detection_log(self) -> None:
         self.detection_log_entries = self.detection_log_store.load()
+        self.detection_log_entries.sort(
+            key=lambda entry: entry.get("timestamp", ""), reverse=True,
+        )
         self.detection_log_tree.delete(*self.detection_log_tree.get_children())
         for entry in self.detection_log_entries:
-            self._insert_detection_log_entry(entry)
+            self._insert_detection_log_entry(entry, "end")
 
     def _clear_detection_log(self) -> None:
         if not self.detection_log_entries:
@@ -1115,7 +1120,7 @@ class RecorderApp:
         except OSError as exc:
             self.status_var.set(f"偵測已命中，但日誌儲存失敗：{exc}")
             return
-        self.detection_log_entries.append(entry)
+        self.detection_log_entries.insert(0, entry)
         self._insert_detection_log_entry(entry)
 
     def _bind_upper_limit(
