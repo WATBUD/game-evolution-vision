@@ -1036,21 +1036,31 @@ class RecorderApp:
             style="Toolbar.TButton",
         ).pack(side="right")
         ttk.Button(
+            toolbar, text="查看命中畫面", command=self._open_selected_detection_evidence,
+            style="Toolbar.TButton",
+        ).pack(side="right", padx=(0, 6))
+        ttk.Button(
             toolbar, text="清除日誌", command=self._clear_detection_log,
             style="Danger.TButton",
         ).pack(side="right", padx=(0, 6))
 
         table = ttk.Frame(parent)
         table.pack(fill="both", expand=True)
-        columns = ("time", "type", "content", "window", "detail")
+        columns = (
+            "time", "type", "target", "content", "score", "window", "evidence",
+        )
         self.detection_log_tree = ttk.Treeview(
             table, columns=columns, show="headings", selectmode="browse",
         )
         headings = {
-            "time": "偵測時間", "type": "類型", "content": "偵測到的內容",
-            "window": "目標視窗", "detail": "詳細結果",
+            "time": "偵測時間", "type": "類型", "target": "設定目標",
+            "content": "實際辨識內容", "score": "相似度／門檻",
+            "window": "目標視窗", "evidence": "畫面實據",
         }
-        widths = {"time": 155, "type": 65, "content": 180, "window": 170, "detail": 360}
+        widths = {
+            "time": 155, "type": 65, "target": 145, "content": 250,
+            "score": 120, "window": 170, "evidence": 90,
+        }
         for column in columns:
             self.detection_log_tree.heading(column, text=headings[column])
             self.detection_log_tree.column(
@@ -1063,6 +1073,9 @@ class RecorderApp:
             yscrollcommand=vertical.set, xscrollcommand=horizontal.set,
         )
         self.detection_log_tree.grid(row=0, column=0, sticky="nsew")
+        self.detection_log_tree.bind(
+            "<Double-1>", lambda _event: self._open_selected_detection_evidence(),
+        )
         vertical.grid(row=0, column=1, sticky="ns")
         horizontal.grid(row=1, column=0, sticky="ew")
         table.rowconfigure(0, weight=1)
@@ -1081,9 +1094,39 @@ class RecorderApp:
     ) -> None:
         self.detection_log_tree.insert("", index, values=(
             self._format_log_timestamp(entry.get("timestamp", "")),
-            entry.get("type", ""), entry.get("content", ""),
-            entry.get("window", ""), entry.get("detail", ""),
+            entry.get("type", ""), entry.get("target", ""),
+            entry.get("content", ""),
+            self._format_detection_log_score(entry),
+            entry.get("window", ""),
+            "雙擊查看" if entry.get("evidence", "") else "舊紀錄無畫面",
         ))
+
+    @staticmethod
+    def _format_detection_log_score(entry: dict[str, str]) -> str:
+        score = entry.get("score", "")
+        threshold = entry.get("threshold", "")
+        if not score:
+            return "—"
+        return f"{score} / {threshold}" if threshold else score
+
+    def _open_selected_detection_evidence(self) -> None:
+        selected = self.detection_log_tree.selection()
+        if not selected:
+            messagebox.showinfo("查看命中畫面", "請先選擇一筆偵測日誌。", parent=self.root)
+            return
+        row_index = self.detection_log_tree.index(selected[0])
+        if row_index >= len(self.detection_log_entries):
+            return
+        evidence = self.detection_log_entries[row_index].get("evidence", "")
+        if not evidence or not Path(evidence).is_file():
+            messagebox.showinfo(
+                "查看命中畫面", "這筆舊日誌沒有保存命中畫面。", parent=self.root,
+            )
+            return
+        try:
+            os.startfile(evidence)
+        except OSError as exc:
+            self._show_copyable_error("無法開啟命中畫面", str(exc))
 
     def _refresh_detection_log(self) -> None:
         self.detection_log_entries = self.detection_log_store.load()
@@ -1113,9 +1156,13 @@ class RecorderApp:
         try:
             entry = self.detection_log_store.append(
                 str(hit.get("detection_type", "未知")),
+                str(hit.get("target", hit.get("template", "未知"))),
                 str(hit.get("detected", hit.get("template", "未知"))),
+                str(hit.get("score", "")),
+                str(hit.get("threshold", "")),
                 str(hit.get("target_title", "未知視窗")),
                 str(hit.get("text", "偵測命中")),
+                str(hit.get("evidence", "")),
             )
         except OSError as exc:
             self.status_var.set(f"偵測已命中，但日誌儲存失敗：{exc}")
@@ -2151,6 +2198,12 @@ class RecorderApp:
             return text
         return f"{text}｜待命中（腳本未播放，不觸發音效）"
 
+    def _save_detection_evidence(self, image: Image.Image, label: str) -> str:
+        try:
+            return self.detection_log_store.save_evidence(image, label)
+        except OSError:
+            return ""
+
     def _detect_text_target_list(
         self, image: Image.Image, targets: list[tuple[str, str, int, float, str]],
         target_title: str, next_alert_at: dict[str, float], cooldown: float,
@@ -2158,6 +2211,7 @@ class RecorderApp:
     ) -> str:
         results: list[tuple[str, float, float, str]] = []
         visual_hits: list[tuple[str, str, int, float, float]] = []
+        evidence_path = ""
         now = time.monotonic()
         candidates = recognize_text_candidates(
             image, [normalized_text for _raw, normalized_text, *_rest in targets]
@@ -2177,6 +2231,9 @@ class RecorderApp:
             visual_hits.append((
                 "text", key, repeat_count, alert_speed, alert_interval,
             ))
+            if not evidence_path:
+                evidence_path = self._save_detection_evidence(image, f"文字_{raw_text}")
+            recognized_text = " ".join(recognized.split()) or "（OCR 未辨識到文字）"
             hit_text = f"[{target_title}] 文字命中「{raw_text}」{score:.1%}"
             self.ui_queue.put((
                 "detection_hit",
@@ -2184,7 +2241,11 @@ class RecorderApp:
                     "text": hit_text,
                     "template": f"文字「{raw_text}」",
                     "detection_type": "文字",
-                    "detected": raw_text,
+                    "target": raw_text,
+                    "detected": recognized_text,
+                    "score": f"{score:.1%}",
+                    "threshold": f"{threshold:.1%}",
+                    "evidence": evidence_path,
                     "target_title": target_title,
                     "repeat_count": repeat_count,
                     "playback_speed": alert_speed,
@@ -2277,6 +2338,7 @@ class RecorderApp:
                     "visual_hits",
                     [("image", key, repeat_count, alert_speed, alert_interval)],
                 ))
+                evidence_path = self._save_detection_evidence(image, f"圖片_{matched_name}")
                 hit_text = f"[{target_title}] 圖片 {image_summary}"
                 self.ui_queue.put((
                     "detection_hit",
@@ -2284,7 +2346,11 @@ class RecorderApp:
                         "text": hit_text,
                         "template": matched_name,
                         "detection_type": "圖片",
+                        "target": matched_name,
                         "detected": matched_name,
+                        "score": f"{_score:.1%}",
+                        "threshold": f"{_threshold:.1%}",
+                        "evidence": evidence_path,
                         "target_title": target_title,
                         "repeat_count": repeat_count,
                         "playback_speed": alert_speed,
@@ -2425,13 +2491,20 @@ class RecorderApp:
                                 "visual_hits",
                                 [("image", key, repeat_count, alert_speed, alert_interval)],
                             ))
+                            evidence_path = self._save_detection_evidence(
+                                image, f"圖片_{matched_name}",
+                            )
                             self.ui_queue.put((
                                 "detection_hit",
                                 {
                                     "text": text,
                                     "template": matched_name,
                                     "detection_type": "圖片",
+                                    "target": matched_name,
                                     "detected": matched_name,
+                                    "score": f"{_score:.1%}",
+                                    "threshold": f"{_threshold:.1%}",
+                                    "evidence": evidence_path,
                                     "target_title": target_title,
                                     "repeat_count": repeat_count,
                                     "playback_speed": alert_speed,
