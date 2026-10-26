@@ -38,6 +38,7 @@ from input_control import (
     send_windows_key,
     serialize_key,
 )
+from detection_log import DetectionLogStore
 
 
 APP_DIR = (
@@ -50,6 +51,7 @@ SOUND_DIR = APP_DIR / "sounds"
 PROJECT_DIR = APP_DIR / "project_data"
 PROJECT_TEMPLATE_DIR = PROJECT_DIR / "templates"
 PROJECT_FILE = PROJECT_DIR / "gkey_project.json"
+DETECTION_LOG_FILE = PROJECT_DIR / "detection_history.jsonl"
 MAX_ALERT_REPEAT = 40
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
@@ -341,6 +343,8 @@ class RecorderApp:
         self.capture_pending = False
         self.window_watchdog_last = time.time()
         self.window_iconic_since: float | None = None
+        self.detection_log_store = DetectionLogStore(DETECTION_LOG_FILE)
+        self.detection_log_entries = self.detection_log_store.load()
 
         CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
         SOUND_DIR.mkdir(parents=True, exist_ok=True)
@@ -638,9 +642,12 @@ class RecorderApp:
         detection_tab = ttk.Frame(notebook, padding=8)
         recording_tab = ttk.Frame(notebook, padding=8)
         playback_tab = ttk.Frame(notebook, padding=8)
+        log_tab = ttk.Frame(notebook, padding=8)
         notebook.add(recording_tab, text="錄製腳本")
         notebook.add(detection_tab, text="畫面偵測")
         notebook.add(playback_tab, text="播放設定")
+        notebook.add(log_tab, text="偵測日誌")
+        self._build_detection_log_tab(log_tab)
 
         detection_scrollbar = ttk.Scrollbar(detection_tab, orient="vertical")
         detection_scrollbar.pack(side="right", fill="y")
@@ -1016,6 +1023,100 @@ class RecorderApp:
         direction = -1 if event.delta > 0 else 1
         canvas.yview_scroll(direction * 3, "units")
         return "break"
+
+    def _build_detection_log_tab(self, parent: ttk.Frame) -> None:
+        toolbar = ttk.Frame(parent)
+        toolbar.pack(fill="x", pady=(0, 8))
+        ttk.Label(
+            toolbar, text="實際觸發的文字與圖片偵測會永久保存在此處。",
+            foreground="#31546D",
+        ).pack(side="left")
+        ttk.Button(
+            toolbar, text="重新整理", command=self._refresh_detection_log,
+            style="Toolbar.TButton",
+        ).pack(side="right")
+        ttk.Button(
+            toolbar, text="清除日誌", command=self._clear_detection_log,
+            style="Danger.TButton",
+        ).pack(side="right", padx=(0, 6))
+
+        table = ttk.Frame(parent)
+        table.pack(fill="both", expand=True)
+        columns = ("time", "type", "content", "window", "detail")
+        self.detection_log_tree = ttk.Treeview(
+            table, columns=columns, show="headings", selectmode="browse",
+        )
+        headings = {
+            "time": "偵測時間", "type": "類型", "content": "偵測到的內容",
+            "window": "目標視窗", "detail": "詳細結果",
+        }
+        widths = {"time": 155, "type": 65, "content": 180, "window": 170, "detail": 360}
+        for column in columns:
+            self.detection_log_tree.heading(column, text=headings[column])
+            self.detection_log_tree.column(
+                column, width=widths[column], minwidth=55,
+                anchor="center" if column in {"time", "type"} else "w",
+            )
+        vertical = ttk.Scrollbar(table, orient="vertical", command=self.detection_log_tree.yview)
+        horizontal = ttk.Scrollbar(table, orient="horizontal", command=self.detection_log_tree.xview)
+        self.detection_log_tree.configure(
+            yscrollcommand=vertical.set, xscrollcommand=horizontal.set,
+        )
+        self.detection_log_tree.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        self._refresh_detection_log()
+
+    @staticmethod
+    def _format_log_timestamp(value: str) -> str:
+        try:
+            return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return value
+
+    def _insert_detection_log_entry(self, entry: dict[str, str]) -> None:
+        self.detection_log_tree.insert("", 0, values=(
+            self._format_log_timestamp(entry.get("timestamp", "")),
+            entry.get("type", ""), entry.get("content", ""),
+            entry.get("window", ""), entry.get("detail", ""),
+        ))
+
+    def _refresh_detection_log(self) -> None:
+        self.detection_log_entries = self.detection_log_store.load()
+        self.detection_log_tree.delete(*self.detection_log_tree.get_children())
+        for entry in self.detection_log_entries:
+            self._insert_detection_log_entry(entry)
+
+    def _clear_detection_log(self) -> None:
+        if not self.detection_log_entries:
+            return
+        if not messagebox.askyesno(
+            "清除偵測日誌", "確定要永久清除所有偵測日誌嗎？", parent=self.root,
+        ):
+            return
+        try:
+            self.detection_log_store.clear()
+        except OSError as exc:
+            self._show_copyable_error("無法清除偵測日誌", str(exc))
+            return
+        self.detection_log_entries.clear()
+        self.detection_log_tree.delete(*self.detection_log_tree.get_children())
+
+    def _record_detection_log(self, hit: dict[str, object]) -> None:
+        try:
+            entry = self.detection_log_store.append(
+                str(hit.get("detection_type", "未知")),
+                str(hit.get("detected", hit.get("template", "未知"))),
+                str(hit.get("target_title", "未知視窗")),
+                str(hit.get("text", "偵測命中")),
+            )
+        except OSError as exc:
+            self.status_var.set(f"偵測已命中，但日誌儲存失敗：{exc}")
+            return
+        self.detection_log_entries.append(entry)
+        self._insert_detection_log_entry(entry)
 
     def _bind_upper_limit(
         self, widget: tk.Widget, variable: tk.Variable, maximum: float,
@@ -2077,6 +2178,9 @@ class RecorderApp:
                 {
                     "text": hit_text,
                     "template": f"文字「{raw_text}」",
+                    "detection_type": "文字",
+                    "detected": raw_text,
+                    "target_title": target_title,
                     "repeat_count": repeat_count,
                     "playback_speed": alert_speed,
                 },
@@ -2174,6 +2278,9 @@ class RecorderApp:
                     {
                         "text": hit_text,
                         "template": matched_name,
+                        "detection_type": "圖片",
+                        "detected": matched_name,
+                        "target_title": target_title,
                         "repeat_count": repeat_count,
                         "playback_speed": alert_speed,
                     },
@@ -2318,6 +2425,9 @@ class RecorderApp:
                                 {
                                     "text": text,
                                     "template": matched_name,
+                                    "detection_type": "圖片",
+                                    "detected": matched_name,
+                                    "target_title": target_title,
                                     "repeat_count": repeat_count,
                                     "playback_speed": alert_speed,
                                 },
@@ -2898,6 +3008,7 @@ class RecorderApp:
                     playback_speed = max(
                         0.25, min(4.0, float(hit.get("playback_speed", 2.0)))
                     )
+                    self._record_detection_log(hit)
                     self.play_alert_sound(repeat_count, playback_speed)
                     self.status_var.set(
                         f"{hit_text}；{template_name} 播放 {repeat_count} 次提示音，"
