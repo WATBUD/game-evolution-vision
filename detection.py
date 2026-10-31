@@ -178,6 +178,14 @@ def recognize_text_for_target(image: Image.Image, target: str) -> str:
 
 def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[str]:
     """OCR one frame once and return text candidates shared by every target."""
+    cached_box = getattr(_ocr_thread_local, "overlay_box", None)
+    if cached_box and cached_box[2] <= image.width and cached_box[3] <= image.height:
+        local_candidates = recognize_overlay(image.crop(cached_box))
+        if targets and all(
+            any(ocr_text_similarity(target, text) == 1.0 for text in local_candidates)
+            for target in targets
+        ):
+            return local_candidates
     overlay_candidates = recognize_overlay(image)
     if targets and all(
         any(ocr_text_similarity(target, text) == 1.0 for text in overlay_candidates)
@@ -213,6 +221,15 @@ def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[st
     scored_tiles = []
     for left, top in positions:
             tile = image.crop((left, top, left + tile_width, top + tile_height))
+            color_texts = recognize_overlay(tile)
+            candidates.extend(color_texts)
+            unresolved = {
+                target for target in unresolved
+                if not any(ocr_text_similarity(target, text) == 1.0 for text in color_texts)
+            }
+            if not unresolved:
+                _ocr_thread_local.overlay_box = (left, top, left + tile_width, top + tile_height)
+                return candidates
             tile_text = recognize_text(tile)
             candidates.append(tile_text)
             score = max((ocr_text_similarity(target, tile_text) for target in targets), default=0.0)
