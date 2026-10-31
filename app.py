@@ -989,13 +989,13 @@ class RecorderApp:
             style="Accent.TButton",
         )
         self.play_button.grid(row=0, column=4, padx=(20, 0))
-        ttk.Label(playback, text="按下抖動 ±").grid(row=1, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(playback, text="方向鍵按下抖動 ±").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Spinbox(
             playback, from_=0.000, to=0.050, increment=0.001,
             format="%.3f", textvariable=self.press_jitter_var, width=8
         ).grid(row=1, column=1, padx=(8, 24), pady=(10, 0))
         ttk.Label(playback, text="秒（0 表示關閉）").grid(row=1, column=2, sticky="w", pady=(10, 0))
-        ttk.Label(playback, text="放開抖動 ±").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(playback, text="方向鍵放開抖動 ±").grid(row=2, column=0, sticky="w", pady=(8, 0))
         ttk.Spinbox(
             playback, from_=0.000, to=0.050, increment=0.001,
             format="%.3f", textvariable=self.release_jitter_var, width=8
@@ -3097,7 +3097,7 @@ class RecorderApp:
                     else rng.uniform(speed_min, speed_max)
                 )
                 jitter_text = (
-                    f"，按下 ±{press_jitter_sec:.3f} 秒、放開 ±{release_jitter_sec:.3f} 秒"
+                    f"，僅方向鍵按下 ±{press_jitter_sec:.3f} 秒、放開 ±{release_jitter_sec:.3f} 秒"
                     if press_jitter_sec or release_jitter_sec else "，未啟用抖動"
                 )
                 self.ui_queue.put((
@@ -3115,6 +3115,11 @@ class RecorderApp:
                     jitter_limit = (
                         press_jitter_sec if event.action == "down" else release_jitter_sec
                     )
+                    if playback_key not in {
+                        "key:up", "key:down", "key:left", "key:right",
+                        "vk:37", "vk:38", "vk:39", "vk:40",
+                    }:
+                        jitter_limit = 0.0
                     jitter = (
                         rng.uniform(-jitter_limit, jitter_limit)
                         if jitter_limit else 0.0
