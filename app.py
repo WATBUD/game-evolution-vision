@@ -2285,12 +2285,10 @@ class RecorderApp:
         ).start()
 
     def _detection_effects_enabled(self) -> bool:
-        return self.playing and not self.stop_event.is_set()
+        return True
 
     def _detection_result_with_state(self, text: str) -> str:
-        if self._detection_effects_enabled():
-            return text
-        return f"{text}｜待命中（腳本未播放，不觸發音效）"
+        return text
 
     def _save_detection_evidence(self, image: Image.Image, label: str) -> str:
         try:
@@ -2850,8 +2848,7 @@ class RecorderApp:
         was_playing = self.playing
         self.recording = False
         self.stop_event.set()
-        if was_recording or was_playing:
-            self._cancel_alert_sound()
+        self._cancel_alert_sound()
         if self.listener:
             self.listener.stop()
             self.listener = None
@@ -3184,7 +3181,7 @@ class RecorderApp:
                     self.play_alert_sound(repeat_count, playback_speed)
                     self.status_var.set(
                         f"{hit_text}；{template_name} 播放 {repeat_count} 次提示音，"
-                        "偵測與腳本繼續執行。"
+                        "持續偵測保持運行。"
                     )
                 elif kind == "picked_color":
                     self.color_pick_listener = None
