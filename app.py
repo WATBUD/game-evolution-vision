@@ -1401,6 +1401,7 @@ class RecorderApp:
 
     def _setup_project_autosave(self) -> None:
         variables = (
+            self.speed_min_var, self.speed_max_var,
             self.detect_mode_var, self.similarity_var, self.image_scan_interval_var,
             self.text_scan_interval_var,
             self.color_var, self.color_tolerance_var,
@@ -1456,6 +1457,10 @@ class RecorderApp:
             payload = {
                 "version": 9,
                 "arrow_jitter_only": self.arrow_jitter_only_var.get(),
+                "playback": {
+                    "speed_min": float(self.speed_min_var.get()),
+                    "speed_max": float(self.speed_max_var.get()),
+                },
                 "script": {"last_path": self.last_script_path},
                 "target_window": {
                     "hwnd": self._selected_hwnd() or self.last_target_hwnd,
@@ -1544,6 +1549,12 @@ class RecorderApp:
             script = data.get("script", {})
             self.last_script_path = str(script.get("last_path", ""))
             self.arrow_jitter_only_var.set(bool(data.get("arrow_jitter_only", True)))
+            playback = data.get("playback", {})
+            speed_min = float(playback.get("speed_min", self.defaults["playback"]["speed_min"]))
+            speed_max = float(playback.get("speed_max", self.defaults["playback"]["speed_max"]))
+            if 0 < speed_min <= speed_max <= 10:
+                self.speed_min_var.set(speed_min)
+                self.speed_max_var.set(speed_max)
             if self.last_script_path:
                 previous_script = Path(self.last_script_path)
                 relocated_script = SCRIPT_DIR / previous_script.name
