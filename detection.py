@@ -177,11 +177,35 @@ def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[st
         round(index * (image.height - tile_height) / max(1, y_steps - 1))
         for index in range(y_steps)
     ]
-    for top in y_positions:
-        for left in x_positions:
+    positions = [(left, top) for top in y_positions for left in x_positions]
+    cached = getattr(_ocr_thread_local, "last_hit_tile", None)
+    if cached in positions:
+        positions.remove(cached)
+        positions.insert(0, cached)
+    scored_tiles = []
+    for left, top in positions:
             tile = image.crop((left, top, left + tile_width, top + tile_height))
             tile_text = recognize_text(tile)
             candidates.append(tile_text)
+            score = max((ocr_text_similarity(target, tile_text) for target in targets), default=0.0)
+            scored_tiles.append((score, left, top))
+            unresolved = {
+                target for target in unresolved
+                if ocr_text_similarity(target, tile_text) < 1.0
+            }
+            if not unresolved:
+                _ocr_thread_local.last_hit_tile = (left, top)
+                return candidates
+    # Animated overlays can tilt the text. Deskew only the strongest regions,
+    # rather than multiplying OCR work for every tile in every frame.
+    for _score, left, top in sorted(scored_tiles, reverse=True)[:2]:
+        tile = image.crop((left, top, left + tile_width, top + tile_height))
+        for angle in (20, -20):
+            rotated = tile.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True)
+            tile_text = recognize_text(rotated)
+            candidates.append(tile_text)
+            if any(ocr_text_similarity(target, tile_text) >= 0.85 for target in targets):
+                _ocr_thread_local.last_hit_tile = (left, top)
             unresolved = {
                 target for target in unresolved
                 if ocr_text_similarity(target, tile_text) < 1.0
