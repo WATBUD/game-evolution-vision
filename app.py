@@ -295,6 +295,7 @@ class RecorderApp:
         self.release_jitter_var = tk.DoubleVar(value=0.010)
         self.seed_var = tk.IntVar(value=12345)
         self.reverse_even_var = tk.BooleanVar(value=False)
+        self.arrow_jitter_only_var = tk.BooleanVar(value=True)
         self.detection_lock_var = tk.BooleanVar(value=True)
         self.detection_lock_text_var = tk.StringVar(value="✓ 鎖定偵測")
         self.status_var = tk.StringVar(value="就緒")
@@ -989,13 +990,14 @@ class RecorderApp:
             style="Accent.TButton",
         )
         self.play_button.grid(row=0, column=4, padx=(20, 0))
-        ttk.Label(playback, text="方向鍵按下抖動 ±").grid(row=1, column=0, sticky="w", pady=(10, 0))
+        ttk.Checkbutton(playback, text="僅方向鍵抖動", variable=self.arrow_jitter_only_var, command=lambda: self.save_project(notify=False), style="Toolbutton").grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(playback, text="按下抖動 ±").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Spinbox(
             playback, from_=0.000, to=0.050, increment=0.001,
             format="%.3f", textvariable=self.press_jitter_var, width=8
         ).grid(row=1, column=1, padx=(8, 24), pady=(10, 0))
         ttk.Label(playback, text="秒（0 表示關閉）").grid(row=1, column=2, sticky="w", pady=(10, 0))
-        ttk.Label(playback, text="方向鍵放開抖動 ±").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(playback, text="放開抖動 ±").grid(row=2, column=0, sticky="w", pady=(8, 0))
         ttk.Spinbox(
             playback, from_=0.000, to=0.050, increment=0.001,
             format="%.3f", textvariable=self.release_jitter_var, width=8
@@ -1017,7 +1019,7 @@ class RecorderApp:
                 "按下／放開抖動 0.050 秒"
             ),
             foreground="#526575",
-        ).grid(row=3, column=0, columnspan=5, sticky="w", pady=(10, 0))
+        ).grid(row=4, column=0, columnspan=5, sticky="w", pady=(10, 0))
 
         ttk.Label(
             playback_tab,
@@ -1453,6 +1455,7 @@ class RecorderApp:
                 })
             payload = {
                 "version": 9,
+                "arrow_jitter_only": self.arrow_jitter_only_var.get(),
                 "script": {"last_path": self.last_script_path},
                 "target_window": {
                     "hwnd": self._selected_hwnd() or self.last_target_hwnd,
@@ -1540,6 +1543,7 @@ class RecorderApp:
             self.template_image = loaded[-1][1] if loaded else None
             script = data.get("script", {})
             self.last_script_path = str(script.get("last_path", ""))
+            self.arrow_jitter_only_var.set(bool(data.get("arrow_jitter_only", True)))
             if self.last_script_path:
                 previous_script = Path(self.last_script_path)
                 relocated_script = SCRIPT_DIR / previous_script.name
@@ -3071,6 +3075,7 @@ class RecorderApp:
             args=(
                 hwnd, repeats, speed_min, speed_max,
                 press_jitter_sec, release_jitter_sec, seed, reverse_even,
+                self.arrow_jitter_only_var.get(),
             ),
             daemon=True,
         ).start()
@@ -3078,7 +3083,7 @@ class RecorderApp:
     def _play_worker(
         self, hwnd: int, repeats: int, speed_min: float, speed_max: float,
         press_jitter_sec: float, release_jitter_sec: float, seed: int,
-        reverse_even: bool,
+        reverse_even: bool, arrow_jitter_only: bool = True,
     ) -> None:
         held: set[str] = set()
         rng = random.Random(seed)
@@ -3097,7 +3102,7 @@ class RecorderApp:
                     else rng.uniform(speed_min, speed_max)
                 )
                 jitter_text = (
-                    f"，僅方向鍵按下 ±{press_jitter_sec:.3f} 秒、放開 ±{release_jitter_sec:.3f} 秒"
+                    f"，{'僅方向鍵' if arrow_jitter_only else '所有按鍵'}按下 ±{press_jitter_sec:.3f} 秒、放開 ±{release_jitter_sec:.3f} 秒"
                     if press_jitter_sec or release_jitter_sec else "，未啟用抖動"
                 )
                 self.ui_queue.put((
@@ -3115,7 +3120,7 @@ class RecorderApp:
                     jitter_limit = (
                         press_jitter_sec if event.action == "down" else release_jitter_sec
                     )
-                    if playback_key not in {
+                    if arrow_jitter_only and playback_key not in {
                         "key:up", "key:down", "key:left", "key:right",
                         "vk:37", "vk:38", "vk:39", "vk:40",
                     }:
