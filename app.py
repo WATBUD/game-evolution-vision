@@ -336,8 +336,8 @@ class RecorderApp:
         self.alert_repeat_var = tk.IntVar(value=1)
         self.alert_interval_var = tk.DoubleVar(value=0.0)
         self.alert_speed_var = tk.DoubleVar(value=ALERT_PLAYBACK_SPEED)
-        self.alert_cooldown_var = tk.DoubleVar(value=40.0)
-        self.text_cooldown_var = tk.DoubleVar(value=40.0)
+        self.alert_cooldown_var = tk.DoubleVar(value=50.0)
+        self.text_cooldown_var = tk.DoubleVar(value=10.0)
         self.project_save_after_id: str | None = None
         self.last_script_path = ""
         self.last_target_hwnd = 0
@@ -865,7 +865,7 @@ class RecorderApp:
                 f"設定上限：相似度 100%（1.00）｜每項圖片／文字提示音 {MAX_ALERT_REPEAT} 次｜"
                 "提示音倍速 4.00×\n"
                 "每張圖片與每項文字皆可獨立設定；圖片可試聽提示音，"
-                "預設命中冷卻 40 秒"
+                "預設命中冷卻：文字 10 秒、圖片 50 秒"
             ),
             foreground="#526575",
             justify="left",
@@ -1555,9 +1555,9 @@ class RecorderApp:
             self.alert_interval_var.set(float(alert.get("interval", 0.0)))
             self.alert_speed_var.set(float(alert.get("speed", ALERT_PLAYBACK_SPEED)))
             self.alert_cooldown_var.set(
-                40.0 if project_version < 2 else float(alert.get("cooldown", 40.0))
+                50.0 if project_version < 2 else float(alert.get("cooldown", 50.0))
             )
-            self.text_cooldown_var.set(float(alert.get("text_cooldown", self.alert_cooldown_var.get())))
+            self.text_cooldown_var.set(float(alert.get("text_cooldown", 10.0)))
             self.template_path_var.set(
                 f"已選擇 {len(loaded)} 張圖片" if loaded else "尚未選擇圖片"
             )
