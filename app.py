@@ -337,6 +337,7 @@ class RecorderApp:
         self.alert_interval_var = tk.DoubleVar(value=0.0)
         self.alert_speed_var = tk.DoubleVar(value=ALERT_PLAYBACK_SPEED)
         self.alert_cooldown_var = tk.DoubleVar(value=40.0)
+        self.text_cooldown_var = tk.DoubleVar(value=40.0)
         self.project_save_after_id: str | None = None
         self.last_script_path = ""
         self.last_target_hwnd = 0
@@ -774,6 +775,8 @@ class RecorderApp:
             format="%.1f", textvariable=self.text_scan_interval_var, width=6,
         ).pack(side="left")
         text_list_frame.configure(labelwidget=text_header)
+        ttk.Label(text_header, text="命中冷卻（秒）").pack(side="left", padx=(18, 6))
+        ttk.Spinbox(text_header, from_=0, to=3600, textvariable=self.text_cooldown_var, width=6).pack(side="left")
         self.text_list_inner = ttk.Frame(text_list_frame)
         self.text_list_inner.pack(fill="x")
 
@@ -792,6 +795,8 @@ class RecorderApp:
             format="%.1f", textvariable=self.image_scan_interval_var, width=6,
         ).pack(side="left")
         preview_frame.configure(labelwidget=preview_header)
+        ttk.Label(preview_header, text="命中冷卻（秒）").pack(side="left", padx=(18, 6))
+        ttk.Spinbox(preview_header, from_=0, to=3600, textvariable=self.alert_cooldown_var, width=6).pack(side="left")
         self.preview_inner = ttk.Frame(preview_frame)
         self.preview_inner.pack(fill="x")
         self.preview_empty_label = ttk.Label(self.preview_inner, text="尚未設定圖片")
@@ -847,14 +852,6 @@ class RecorderApp:
         ttk.Spinbox(
             alert_settings, from_=0.0, to=60.0, increment=0.05, format="%.2f",
             textvariable=self.alert_interval_var, width=6,
-        ).pack(side="left", padx=(8, 3))
-        ttk.Label(alert_settings, text="秒").pack(side="left")
-        ttk.Label(alert_settings, text="命中冷卻", foreground="#B35A00").pack(
-            side="left", padx=(12, 0)
-        )
-        ttk.Spinbox(
-            alert_settings, from_=0.0, to=3600.0, increment=1.0, format="%.0f",
-            textvariable=self.alert_cooldown_var, width=6,
         ).pack(side="left", padx=(8, 3))
         ttk.Label(alert_settings, text="秒").pack(side="left")
         ttk.Button(
@@ -1373,7 +1370,7 @@ class RecorderApp:
             self.color_var, self.color_tolerance_var,
             self.alert_volume_db_var,
             self.alert_repeat_var, self.alert_interval_var, self.alert_speed_var,
-            self.alert_cooldown_var,
+            self.alert_cooldown_var, self.text_cooldown_var,
         )
         for variable in variables:
             variable.trace_add("write", self._schedule_project_save)
@@ -1382,7 +1379,7 @@ class RecorderApp:
             self.text_scan_interval_var,
             self.color_var, self.color_tolerance_var,
             self.alert_repeat_var, self.alert_interval_var, self.alert_speed_var,
-            self.alert_cooldown_var,
+            self.alert_cooldown_var, self.text_cooldown_var,
         )
         for variable in detection_variables:
             variable.trace_add("write", self._on_detection_setting_changed)
@@ -1444,6 +1441,7 @@ class RecorderApp:
                     "interval": float(self.alert_interval_var.get()),
                     "speed": float(self.alert_speed_var.get()),
                     "cooldown": float(self.alert_cooldown_var.get()),
+                    "text_cooldown": float(self.text_cooldown_var.get()),
                 },
             }
             temporary = PROJECT_FILE.with_suffix(".tmp")
@@ -1559,6 +1557,7 @@ class RecorderApp:
             self.alert_cooldown_var.set(
                 40.0 if project_version < 2 else float(alert.get("cooldown", 40.0))
             )
+            self.text_cooldown_var.set(float(alert.get("text_cooldown", self.alert_cooldown_var.get())))
             self.template_path_var.set(
                 f"已選擇 {len(loaded)} 張圖片" if loaded else "尚未選擇圖片"
             )
@@ -2161,13 +2160,13 @@ class RecorderApp:
         try:
             image_interval = float(self.image_scan_interval_var.get())
             text_interval = float(self.text_scan_interval_var.get())
-            cooldown = float(self.alert_cooldown_var.get())
+            cooldown = (float(self.alert_cooldown_var.get()), float(self.text_cooldown_var.get()))
             alert_interval = float(self.alert_interval_var.get())
             alert_speed = float(self.alert_speed_var.get())
             if image_interval < 0.1 or text_interval < 0.1:
                 raise ValueError
             if (
-                cooldown < 0 or alert_interval < 0
+                any(not 0 <= value <= 3600 for value in cooldown) or alert_interval < 0
                 or not 0.25 <= alert_speed <= 4.0
             ):
                 raise ValueError
@@ -2366,7 +2365,7 @@ class RecorderApp:
     def _detect_combined_frame(
         self, image: Image.Image, target: object, target_title: str,
         continuous: bool, previous_matches: set[str],
-        next_alert_at: dict[str, float], cooldown: float,
+        next_alert_at: dict[str, float], cooldown: tuple[float, float],
         alert_interval: float, alert_speed: float,
         detect_image: bool, detect_text: bool,
         image_summary: str, text_summary: str,
@@ -2452,11 +2451,11 @@ class RecorderApp:
                     repeat_count * ALERT_BASE_DURATION
                     + max(0, repeat_count - 1) * alert_interval
                 ) / alert_speed
-                next_alert_at[key] = now + sequence_duration + cooldown
+                next_alert_at[key] = now + sequence_duration + cooldown[0]
 
         if detect_text:
             text_summary = self._detect_text_target_list(
-                image, text_target, target_title, next_alert_at, cooldown,
+                image, text_target, target_title, next_alert_at, cooldown[1],
                 alert_interval, alert_speed,
             )
 
@@ -2465,7 +2464,7 @@ class RecorderApp:
 
     def _detection_worker(
         self, hwnd: int, mode: str, target: object, intervals: tuple[float, float],
-        target_title: str, cooldown: float, alert_interval: float,
+        target_title: str, cooldown: tuple[float, float], alert_interval: float,
         alert_speed: float,
         continuous: bool,
     ) -> None:
@@ -2606,10 +2605,10 @@ class RecorderApp:
                                 repeat_count * ALERT_BASE_DURATION
                                 + max(0, repeat_count - 1) * alert_interval
                             ) / alert_speed
-                            next_alert_at[key] = now + sequence_duration + cooldown
+                            next_alert_at[key] = now + sequence_duration + cooldown[0]
                 elif mode == "文字":
                     summary = self._detect_text_target_list(
-                        image, target, target_title, next_alert_at, cooldown,
+                        image, target, target_title, next_alert_at, cooldown[1],
                         alert_interval, alert_speed,
                     )
                     text = f"[{target_title}] 文字：{summary}"
