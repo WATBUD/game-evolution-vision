@@ -378,6 +378,7 @@ class RecorderApp:
         self._setup_project_autosave()
         self.refresh_windows()
         self.root.after(250, self._show_main_window)
+        self.root.after(350, self._restore_last_script)
         self.root.after(600, self._start_locked_detection_on_launch)
         self.root.after(100, self._poll_queue)
         self.root.after(1000, self._window_health_watchdog)
@@ -2995,8 +2996,15 @@ class RecorderApp:
         if not path:
             self._set_state("就緒", "已取消載入腳本。")
             return
+        self._load_script_path(Path(path))
+
+    def _restore_last_script(self) -> None:
+        if self.last_script_path:
+            self._load_script_path(Path(self.last_script_path), restoring=True)
+
+    def _load_script_path(self, path: Path, restoring: bool = False) -> None:
         try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
             raw_events = data["events"]
             events = [KeyEvent(float(e["time"]), str(e["action"]), str(e["key"])) for e in raw_events]
             if any(e.action not in ("down", "up") or e.time < 0 for e in events):
@@ -3010,7 +3018,14 @@ class RecorderApp:
             self._refresh_event_table()
             self.status_var.set(f"已載入：{path}")
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            messagebox.showerror("載入失敗", f"腳本格式不正確：\n{exc}")
+            if restoring:
+                self.script_name_var.set(f"上次腳本無法載入：{path.name}")
+                messagebox.showwarning(
+                    "無法還原上次腳本", f"檔案不存在、無法讀取或格式不正確：\n{path}\n\n{exc}",
+                    parent=self.root,
+                )
+            else:
+                messagebox.showerror("載入失敗", f"腳本格式不正確：\n{exc}")
 
     def start_playback(self) -> None:
         if self.recording or self.playing:
