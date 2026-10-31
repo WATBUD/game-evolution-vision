@@ -1080,7 +1080,7 @@ class RecorderApp:
             table, columns=columns, show="headings", selectmode="browse",
         )
         headings = {
-            "locked": "鎖定",
+            "locked": "保留",
             "log_id": "Log 種子編號", "time": "偵測時間", "type": "類型", "target": "設定目標",
             "content": "實際辨識內容", "score": "相似度／門檻",
             "window": "目標視窗", "evidence": "畫面實據",
@@ -1159,7 +1159,7 @@ class RecorderApp:
                     self.detection_log_store.set_locked(entry["log_id"], entry.get("locked") != "1")
                     self._refresh_detection_log()
                 except OSError as exc:
-                    self._show_copyable_error("無法儲存鎖定狀態", str(exc))
+                    self._show_copyable_error("無法儲存保留狀態", str(exc))
             return
         if tree.identify_column(event.x) != "#1":
             return
@@ -1236,7 +1236,7 @@ class RecorderApp:
         if not self.detection_log_entries:
             return
         if not messagebox.askyesno(
-            "清除偵測日誌", "確定要永久清除未鎖定的偵測日誌及圖片嗎？鎖定項目會保留。", parent=self.root,
+            "清除偵測日誌", "確定要永久清除未勾選保留的偵測日誌及圖片嗎？已勾選保留的項目不會刪除。", parent=self.root,
         ):
             return
         try:
