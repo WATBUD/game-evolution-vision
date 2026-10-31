@@ -1,0 +1,28 @@
+{
+  "playback": {
+    "repeat": 40,
+    "speed_min": 0.8,
+    "speed_max": 1.2,
+    "press_jitter": 0.01,
+    "release_jitter": 0.01,
+    "seed": 12345,
+    "reverse_even": false
+  },
+  "detection": {
+    "mode": "ALL",
+    "similarity": 0.85,
+    "ocr_similarity": 0.7,
+    "image_scan_interval": 0.5,
+    "text_scan_interval": 0.5,
+    "color": "#FF0000",
+    "color_tolerance": 10
+  },
+  "alert": {
+    "volume_db": -6,
+    "repeat": 1,
+    "interval": 0.0,
+    "speed": 2.0,
+    "cooldown": 50.0,
+    "text_cooldown": 10.0
+  }
+}

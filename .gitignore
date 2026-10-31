@@ -10,6 +10,7 @@ sounds/
 scripts/
 project_data/
 *.json
+!config/defaults.json
 *.log
 *.pid
 

@@ -39,6 +39,7 @@ from input_control import (
     serialize_key,
 )
 from detection_log import DetectionLogStore
+from config_defaults import load_defaults
 
 
 APP_DIR = (
@@ -339,6 +340,24 @@ class RecorderApp:
         self.alert_speed_var = tk.DoubleVar(value=ALERT_PLAYBACK_SPEED)
         self.alert_cooldown_var = tk.DoubleVar(value=50.0)
         self.text_cooldown_var = tk.DoubleVar(value=10.0)
+        self.defaults = load_defaults(APP_DIR / "config" / "defaults.json")
+        default_variables = {
+            "playback": {"repeat": self.repeat_var, "speed_min": self.speed_min_var,
+                         "speed_max": self.speed_max_var, "press_jitter": self.press_jitter_var,
+                         "release_jitter": self.release_jitter_var, "seed": self.seed_var,
+                         "reverse_even": self.reverse_even_var},
+            "detection": {"mode": self.detect_mode_var, "similarity": self.similarity_var,
+                          "ocr_similarity": self.ocr_similarity_var,
+                          "image_scan_interval": self.image_scan_interval_var,
+                          "text_scan_interval": self.text_scan_interval_var,
+                          "color": self.color_var, "color_tolerance": self.color_tolerance_var},
+            "alert": {"volume_db": self.alert_volume_db_var, "repeat": self.alert_repeat_var,
+                      "interval": self.alert_interval_var, "speed": self.alert_speed_var,
+                      "cooldown": self.alert_cooldown_var, "text_cooldown": self.text_cooldown_var},
+        }
+        for section, variables in default_variables.items():
+            for key, variable in variables.items():
+                variable.set(self.defaults[section][key])
         self.project_save_after_id: str | None = None
         self.last_script_path = ""
         self.last_target_hwnd = 0
@@ -1483,7 +1502,7 @@ class RecorderApp:
             project_version = int(data.get("version", 1))
             loaded: list[tuple[str, Image.Image]] = []
             loaded_stats: dict[str, dict[str, object]] = {}
-            alert = data.get("alert", {})
+            alert = {**self.defaults["alert"], **data.get("alert", {})}
             legacy_repeat = max(1, min(MAX_ALERT_REPEAT, int(alert.get("repeat", 1))))
             for item in data.get("templates", []):
                 image_path = PROJECT_DIR / str(item["file"])
@@ -1515,7 +1534,7 @@ class RecorderApp:
                     self.last_script_path = str(relocated_script)
             target_window = data.get("target_window", {})
             self.last_target_hwnd = int(target_window.get("hwnd", 0))
-            detection = data.get("detection", {})
+            detection = {**self.defaults["detection"], **data.get("detection", {})}
             stored_mode = str(detection.get("mode", "ALL"))
             if stored_mode == "圖片＋文字":
                 stored_mode = "ALL"
