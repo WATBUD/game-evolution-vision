@@ -296,6 +296,13 @@ class RecorderApp:
         self.seed_var = tk.IntVar(value=12345)
         self.reverse_even_var = tk.BooleanVar(value=False)
         self.arrow_jitter_only_var = tk.BooleanVar(value=True)
+        self.arrow_jitter_label_var = tk.StringVar(value="✓ 僅方向鍵抖動：開")
+        self.arrow_jitter_only_var.trace_add(
+            "write", lambda *_args: self.arrow_jitter_label_var.set(
+                "✓ 僅方向鍵抖動：開" if self.arrow_jitter_only_var.get()
+                else "僅方向鍵抖動：關（所有按鍵）"
+            ),
+        )
         self.detection_lock_var = tk.BooleanVar(value=True)
         self.detection_lock_text_var = tk.StringVar(value="✓ 鎖定偵測")
         self.status_var = tk.StringVar(value="就緒")
@@ -990,7 +997,11 @@ class RecorderApp:
             style="Accent.TButton",
         )
         self.play_button.grid(row=0, column=4, padx=(20, 0))
-        ttk.Checkbutton(playback, text="僅方向鍵抖動", variable=self.arrow_jitter_only_var, command=lambda: self.save_project(notify=False), style="Toolbutton").grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(
+            playback, textvariable=self.arrow_jitter_label_var,
+            variable=self.arrow_jitter_only_var,
+            command=lambda: self.save_project(notify=False),
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
         ttk.Label(playback, text="按下抖動 ±").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Spinbox(
             playback, from_=0.000, to=0.050, increment=0.001,
