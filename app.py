@@ -1029,7 +1029,7 @@ class RecorderApp:
         toolbar = ttk.Frame(parent)
         toolbar.pack(fill="x", pady=(0, 8))
         ttk.Label(
-            toolbar, text="實際觸發的文字與圖片偵測會永久保存在此處。",
+            toolbar, text="實際觸發會永久保存；點擊 Log 種子編號即可複製。",
             foreground="#31546D",
         ).pack(side="left")
         ttk.Button(
@@ -1056,18 +1056,18 @@ class RecorderApp:
         table = ttk.Frame(parent)
         table.pack(fill="both", expand=True)
         columns = (
-            "time", "type", "target", "content", "score", "window", "evidence",
+            "log_id", "time", "type", "target", "content", "score", "window", "evidence",
         )
         self.detection_log_tree = ttk.Treeview(
             table, columns=columns, show="headings", selectmode="browse",
         )
         headings = {
-            "time": "偵測時間", "type": "類型", "target": "設定目標",
+            "log_id": "Log 種子編號", "time": "偵測時間", "type": "類型", "target": "設定目標",
             "content": "實際辨識內容", "score": "相似度／門檻",
             "window": "目標視窗", "evidence": "畫面實據",
         }
         widths = {
-            "time": 155, "type": 65, "target": 145, "content": 250,
+            "log_id": 95, "time": 155, "type": 65, "target": 145, "content": 250,
             "score": 120, "window": 170, "evidence": 90,
         }
         for column in columns:
@@ -1086,6 +1086,7 @@ class RecorderApp:
         self.detection_log_tree.bind(
             "<Double-1>", lambda _event: self._open_selected_detection_evidence(),
         )
+        self.detection_log_tree.bind("<ButtonRelease-1>", self._copy_detection_log_id)
         self.detection_log_tree.bind("<Motion>", self._show_detection_log_tooltip)
         self.detection_log_tree.bind("<Leave>", self._hide_detection_log_tooltip)
         self.detection_log_tooltip: tk.Toplevel | None = None
@@ -1100,11 +1101,11 @@ class RecorderApp:
         tree = self.detection_log_tree
         row = tree.identify_row(event.y)
         column = tree.identify_column(event.x)
-        if not row or column != "#4":
+        if not row or column != "#5":
             self._hide_detection_log_tooltip()
             return
         values = tree.item(row, "values")
-        content = str(values[3]) if len(values) > 3 else ""
+        content = str(values[4]) if len(values) > 4 else ""
         key = f"{row}:{content}"
         if not content or key == self.detection_log_tooltip_key:
             return
@@ -1128,6 +1129,22 @@ class RecorderApp:
             self.detection_log_tooltip = None
         self.detection_log_tooltip_key = ""
 
+    def _copy_detection_log_id(self, event: tk.Event) -> None:
+        tree = self.detection_log_tree
+        if tree.identify_column(event.x) != "#1":
+            return
+        row = tree.identify_row(event.y)
+        if not row:
+            return
+        values = tree.item(row, "values")
+        log_id = str(values[0]) if values else ""
+        if not log_id:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(log_id)
+        self.root.update_idletasks()
+        self.status_var.set(f"已複製 Log 種子編號：{log_id}")
+
     @staticmethod
     def _format_log_timestamp(value: str) -> str:
         try:
@@ -1139,6 +1156,7 @@ class RecorderApp:
         self, entry: dict[str, str], index: str | int = 0,
     ) -> None:
         self.detection_log_tree.insert("", index, values=(
+            entry.get("log_id", ""),
             self._format_log_timestamp(entry.get("timestamp", "")),
             entry.get("type", ""), entry.get("target", ""),
             entry.get("content", ""),
