@@ -9,6 +9,7 @@ import unicodedata
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
+from overlay_ocr import recognize_overlay
 from winrt.windows.globalization import Language
 from winrt.windows.graphics.imaging import (
     BitmapAlphaMode,
@@ -177,8 +178,14 @@ def recognize_text_for_target(image: Image.Image, target: str) -> str:
 
 def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[str]:
     """OCR one frame once and return text candidates shared by every target."""
+    overlay_candidates = recognize_overlay(image)
+    if targets and all(
+        any(ocr_text_similarity(target, text) == 1.0 for text in overlay_candidates)
+        for target in targets
+    ):
+        return overlay_candidates
     full_text = recognize_text(image)
-    candidates = [full_text]
+    candidates = overlay_candidates + [full_text]
     unresolved = {
         target for target in targets
         if target and ocr_text_similarity(target, full_text) < 1.0
