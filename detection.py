@@ -4,6 +4,7 @@ import asyncio
 import math
 import re
 import threading
+import time
 import unicodedata
 
 import cv2
@@ -176,24 +177,25 @@ def recognize_text_for_target(image: Image.Image, target: str) -> str:
     return max(candidates, key=lambda text: ocr_text_similarity(target, text))
 
 
-def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[str]:
+def recognize_text_candidates(image: Image.Image, targets: list[str], thresholds: list[float] | None = None) -> list[str]:
     """OCR one frame once and return text candidates shared by every target."""
+    thresholds = thresholds if thresholds is not None else [1.0] * len(targets)
+    limits = dict(zip(targets, thresholds))
+    def matched(texts):
+        return any(ocr_text_similarity(target, text) >= limits[target] for target in targets for text in texts)
+    started = time.monotonic()
     cached_box = getattr(_ocr_thread_local, "overlay_box", None)
     if cached_box and cached_box[2] <= image.width and cached_box[3] <= image.height:
         local_candidates = recognize_overlay(image.crop(cached_box))
-        if targets and all(
-            any(ocr_text_similarity(target, text) == 1.0 for text in local_candidates)
-            for target in targets
-        ):
+        if matched(local_candidates):
             return local_candidates
     overlay_candidates = recognize_overlay(image)
-    if targets and all(
-        any(ocr_text_similarity(target, text) == 1.0 for text in overlay_candidates)
-        for target in targets
-    ):
+    if matched(overlay_candidates):
         return overlay_candidates
     full_text = recognize_text(image)
     candidates = overlay_candidates + [full_text]
+    if matched(candidates):
+        return candidates
     unresolved = {
         target for target in targets
         if target and ocr_text_similarity(target, full_text) < 1.0
@@ -214,15 +216,23 @@ def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[st
         for index in range(y_steps)
     ]
     positions = [(left, top) for top in y_positions for left in x_positions]
+    cursor = getattr(_ocr_thread_local, "scan_cursor", 0) % len(positions)
+    positions = positions[cursor:] + positions[:cursor]
     cached = getattr(_ocr_thread_local, "last_hit_tile", None)
     if cached in positions:
         positions.remove(cached)
         positions.insert(0, cached)
     scored_tiles = []
-    for left, top in positions:
+    for index, (left, top) in enumerate(positions):
+            if index >= 4 or (index > 0 and time.monotonic() - started >= 2.0):
+                return candidates
+            _ocr_thread_local.scan_cursor = (cursor + index + 1) % len(positions)
             tile = image.crop((left, top, left + tile_width, top + tile_height))
             color_texts = recognize_overlay(tile)
             candidates.extend(color_texts)
+            if matched(color_texts):
+                _ocr_thread_local.overlay_box = (left, top, left + tile_width, top + tile_height)
+                return candidates
             unresolved = {
                 target for target in unresolved
                 if not any(ocr_text_similarity(target, text) == 1.0 for text in color_texts)
@@ -232,6 +242,9 @@ def recognize_text_candidates(image: Image.Image, targets: list[str]) -> list[st
                 return candidates
             tile_text = recognize_text(tile)
             candidates.append(tile_text)
+            if matched([tile_text]):
+                _ocr_thread_local.overlay_box = (left, top, left + tile_width, top + tile_height)
+                return candidates
             score = max((ocr_text_similarity(target, tile_text) for target in targets), default=0.0)
             scored_tiles.append((score, left, top))
             unresolved = {

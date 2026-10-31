@@ -2343,7 +2343,8 @@ class RecorderApp:
         evidence_path = ""
         now = time.monotonic()
         candidates = recognize_text_candidates(
-            image, [normalized_text for _raw, normalized_text, *_rest in targets]
+            image, [normalized_text for _raw, normalized_text, *_rest in targets],
+            [threshold for _raw, _normalized, _repeat, threshold, _key in targets],
         )
         for raw_text, normalized_text, repeat_count, threshold, key in targets:
             score, recognized = max(
