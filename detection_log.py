@@ -53,6 +53,7 @@ class DetectionLogStore:
                     known_ids.add(log_id)
                 entries.append({
                     "log_id": log_id,
+                    "locked": "1" if item.get("locked") in (True, "1") else "0",
                     "timestamp": str(item.get("timestamp", "")),
                     "type": str(item.get("type", "")),
                     "target": str(item.get("target", item.get("content", ""))),
@@ -87,6 +88,7 @@ class DetectionLogStore:
         with self._lock:
             entry = {
                 "log_id": self._new_log_id(self._known_ids),
+                "locked": "0",
                 "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
                 "type": detection_type,
                 "target": target,
@@ -115,14 +117,14 @@ class DetectionLogStore:
         return str(path)
 
     def clear(self) -> None:
-        with self._lock:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text("", encoding="utf-8")
-            if self.evidence_dir.exists():
-                for pattern in ("*.jpg", "*.png"):
-                    for path in self.evidence_dir.glob(pattern):
-                        path.unlink(missing_ok=True)
-            self._known_ids.clear()
+        self.clear_within_days(1e10)
+
+    def set_locked(self, log_id: str, locked: bool) -> None:
+        entries = self.load()
+        for entry in entries:
+            if entry["log_id"] == log_id:
+                entry["locked"] = "1" if locked else "0"
+        self._rewrite_entries(entries)
 
     def clear_within_days(self, days: float) -> int:
         if days <= 0:
@@ -135,6 +137,9 @@ class DetectionLogStore:
         retained: list[dict[str, str]] = []
         removed: list[dict[str, str]] = []
         for entry in self.load():
+            if entry.get("locked") == "1":
+                retained.append(entry)
+                continue
             try:
                 timestamp = datetime.fromisoformat(entry.get("timestamp", ""))
                 if timestamp.tzinfo is None:
@@ -148,9 +153,10 @@ class DetectionLogStore:
         with self._lock:
             self._known_ids = {entry.get("log_id", "") for entry in retained}
             evidence_root = self.evidence_dir.resolve()
+            retained_evidence = {entry.get("evidence", "") for entry in retained}
             for entry in removed:
                 evidence = entry.get("evidence", "")
-                if not evidence:
+                if not evidence or evidence in retained_evidence:
                     continue
                 evidence_path = Path(evidence)
                 try:

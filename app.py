@@ -366,7 +366,7 @@ class RecorderApp:
         self.window_iconic_since: float | None = None
         self.detection_log_store = DetectionLogStore(DETECTION_LOG_FILE)
         self.detection_log_entries = self.detection_log_store.load()
-        self.log_clear_days_var = tk.StringVar(value="1")
+        self.log_clear_days_var = tk.StringVar(value="3")
 
         CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
         SOUND_DIR.mkdir(parents=True, exist_ok=True)
@@ -1074,17 +1074,19 @@ class RecorderApp:
         table = ttk.Frame(parent)
         table.pack(fill="both", expand=True)
         columns = (
-            "log_id", "time", "type", "target", "content", "score", "window", "evidence",
+            "log_id", "locked", "time", "type", "target", "content", "score", "window", "evidence",
         )
         self.detection_log_tree = ttk.Treeview(
             table, columns=columns, show="headings", selectmode="browse",
         )
         headings = {
+            "locked": "鎖定",
             "log_id": "Log 種子編號", "time": "偵測時間", "type": "類型", "target": "設定目標",
             "content": "實際辨識內容", "score": "相似度／門檻",
             "window": "目標視窗", "evidence": "畫面實據",
         }
         widths = {
+            "locked": 55,
             "log_id": 95, "time": 155, "type": 65, "target": 145, "content": 250,
             "score": 120, "window": 170, "evidence": 90,
         }
@@ -1119,11 +1121,11 @@ class RecorderApp:
         tree = self.detection_log_tree
         row = tree.identify_row(event.y)
         column = tree.identify_column(event.x)
-        if not row or column != "#5":
+        if not row or column != "#6":
             self._hide_detection_log_tooltip()
             return
         values = tree.item(row, "values")
-        content = str(values[4]) if len(values) > 4 else ""
+        content = str(values[5]) if len(values) > 5 else ""
         key = f"{row}:{content}"
         if not content or key == self.detection_log_tooltip_key:
             return
@@ -1149,6 +1151,16 @@ class RecorderApp:
 
     def _copy_detection_log_id(self, event: tk.Event) -> None:
         tree = self.detection_log_tree
+        if tree.identify_column(event.x) == "#2":
+            row = tree.identify_row(event.y)
+            if row:
+                entry = self.detection_log_entries[tree.index(row)]
+                try:
+                    self.detection_log_store.set_locked(entry["log_id"], entry.get("locked") != "1")
+                    self._refresh_detection_log()
+                except OSError as exc:
+                    self._show_copyable_error("無法儲存鎖定狀態", str(exc))
+            return
         if tree.identify_column(event.x) != "#1":
             return
         row = tree.identify_row(event.y)
@@ -1175,6 +1187,7 @@ class RecorderApp:
     ) -> None:
         self.detection_log_tree.insert("", index, values=(
             entry.get("log_id", ""),
+            "☑" if entry.get("locked") == "1" else "☐",
             self._format_log_timestamp(entry.get("timestamp", "")),
             entry.get("type", ""), entry.get("target", ""),
             entry.get("content", ""),
@@ -1223,7 +1236,7 @@ class RecorderApp:
         if not self.detection_log_entries:
             return
         if not messagebox.askyesno(
-            "清除偵測日誌", "確定要永久清除所有偵測日誌嗎？", parent=self.root,
+            "清除偵測日誌", "確定要永久清除未鎖定的偵測日誌及圖片嗎？鎖定項目會保留。", parent=self.root,
         ):
             return
         try:
@@ -1231,8 +1244,7 @@ class RecorderApp:
         except OSError as exc:
             self._show_copyable_error("無法清除偵測日誌", str(exc))
             return
-        self.detection_log_entries.clear()
-        self.detection_log_tree.delete(*self.detection_log_tree.get_children())
+        self._refresh_detection_log()
 
     def _clear_recent_detection_logs(self) -> None:
         try:
