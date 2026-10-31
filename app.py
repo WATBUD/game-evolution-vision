@@ -48,6 +48,7 @@ APP_DIR = (
 )
 CAPTURE_DIR = APP_DIR / "captures"
 SOUND_DIR = APP_DIR / "sounds"
+SCRIPT_DIR = APP_DIR / "scripts"
 PROJECT_DIR = APP_DIR / "project_data"
 PROJECT_TEMPLATE_DIR = PROJECT_DIR / "templates"
 PROJECT_FILE = PROJECT_DIR / "gkey_project.json"
@@ -350,6 +351,7 @@ class RecorderApp:
 
         CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
         SOUND_DIR.mkdir(parents=True, exist_ok=True)
+        SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
 
         self._build_ui()
         self._refresh_text_targets()
@@ -1506,6 +1508,11 @@ class RecorderApp:
             self.template_image = loaded[-1][1] if loaded else None
             script = data.get("script", {})
             self.last_script_path = str(script.get("last_path", ""))
+            if self.last_script_path:
+                previous_script = Path(self.last_script_path)
+                relocated_script = SCRIPT_DIR / previous_script.name
+                if previous_script.parent == APP_DIR and relocated_script.is_file():
+                    self.last_script_path = str(relocated_script)
             target_window = data.get("target_window", {})
             self.last_target_hwnd = int(target_window.get("hwnd", 0))
             detection = data.get("detection", {})
@@ -2908,11 +2915,7 @@ class RecorderApp:
             messagebox.showinfo("沒有腳本", "請先錄製或載入腳本。")
             return
         remembered_path = Path(self.last_script_path) if self.last_script_path else None
-        initial_dir = (
-            remembered_path.parent
-            if remembered_path and remembered_path.parent.exists()
-            else Path.cwd()
-        )
+        initial_dir = SCRIPT_DIR
         path = filedialog.asksaveasfilename(
             parent=self.root,
             defaultextension=".json",
@@ -2942,11 +2945,7 @@ class RecorderApp:
         self.root.update_idletasks()
         path = ""
         remembered_path = Path(self.last_script_path) if self.last_script_path else None
-        initial_dir = (
-            remembered_path.parent
-            if remembered_path and remembered_path.parent.exists()
-            else Path.cwd()
-        )
+        initial_dir = SCRIPT_DIR
         try:
             path = filedialog.askopenfilename(
                 parent=self.root,
