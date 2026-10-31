@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from difflib import SequenceMatcher
 import math
 import re
 import threading
@@ -54,6 +53,28 @@ def normalize_ocr_text(value: str) -> str:
     return "".join(character for character in normalized if not character.isspace())
 
 
+def _ocr_candidate_score(needle: str, candidate: str) -> float:
+    """Penalize each insertion, deletion and substitution, not scattered matches."""
+    previous = list(range(len(candidate) + 1))
+    for row, character in enumerate(needle, 1):
+        current = [row]
+        for column, other in enumerate(candidate, 1):
+            current.append(min(
+                current[-1] + 1, previous[column] + 1,
+                previous[column - 1] + (character != other),
+            ))
+        previous = current
+    score = 1.0 - previous[-1] / max(len(needle), len(candidate))
+    # A tile boundary can clip a genuine word. Preserve a substantial intact
+    # prefix/suffix, while requiring more than a few coincidental letters.
+    if (
+        len(candidate) >= max(4, math.ceil(len(needle) * 0.6))
+        and (needle.startswith(candidate) or needle.endswith(candidate))
+    ):
+        score = max(score, 2 * len(candidate) / (len(needle) + len(candidate)))
+    return score
+
+
 def ocr_text_similarity(target: str, recognized: str) -> float:
     """Return a token-aware fuzzy-match score for OCR text."""
     needle = normalize_ocr_text(target)
@@ -75,7 +96,7 @@ def ocr_text_similarity(target: str, recognized: str) -> float:
 
     target_token_count = max(1, len(re.findall(r"[^\W_]+", target, flags=re.UNICODE)))
     candidates: set[str] = set(tokens)
-    max_join = min(len(tokens), target_token_count + 1)
+    max_join = min(len(tokens), target_token_count)
     for count in range(2, max_join + 1):
         for start in range(len(tokens) - count + 1):
             candidates.add("".join(tokens[start:start + count]))
@@ -90,9 +111,9 @@ def ocr_text_similarity(target: str, recognized: str) -> float:
             for length in range(minimum, maximum + 1):
                 for start in range(len(candidate) - length + 1):
                     segment = candidate[start:start + length]
-                    best = max(best, SequenceMatcher(None, needle, segment).ratio())
+                    best = max(best, _ocr_candidate_score(needle, segment))
         else:
-            best = max(best, SequenceMatcher(None, needle, candidate).ratio())
+            best = max(best, _ocr_candidate_score(needle, candidate))
     return best
 
 
