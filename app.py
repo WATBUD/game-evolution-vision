@@ -670,6 +670,7 @@ class RecorderApp:
         ).grid(row=1, column=1, columnspan=2, sticky="nsew", pady=(3, 0))
 
         notebook = ttk.Notebook(outer)
+        self.main_notebook = notebook
         notebook.pack(fill="both", expand=True, pady=(12, 0))
         detection_tab = ttk.Frame(notebook, padding=8)
         recording_tab = ttk.Frame(notebook, padding=8)
@@ -1412,6 +1413,10 @@ class RecorderApp:
 
     def _setup_project_autosave(self) -> None:
         variables = (
+            self.repeat_var, self.press_jitter_var, self.release_jitter_var,
+            self.seed_var, self.reverse_even_var, self.arrow_jitter_only_var,
+            self.start_hotkey_var, self.stop_hotkey_var, self.play_hotkey_var,
+            self.log_clear_days_var, self.ocr_text_var,
             self.speed_min_var, self.speed_max_var,
             self.detect_mode_var, self.similarity_var, self.image_scan_interval_var,
             self.text_scan_interval_var,
@@ -1422,6 +1427,8 @@ class RecorderApp:
         )
         for variable in variables:
             variable.trace_add("write", self._schedule_project_save)
+        self.root.bind("<Configure>", lambda event: self._schedule_project_save() if event.widget is self.root else None, add="+")
+        self.main_notebook.bind("<<NotebookTabChanged>>", self._schedule_project_save, add="+")
         detection_variables = (
             self.detect_mode_var, self.similarity_var, self.image_scan_interval_var,
             self.text_scan_interval_var,
@@ -1467,8 +1474,14 @@ class RecorderApp:
                 })
             payload = {
                 "version": 9,
+                "ui": {"geometry": self.root.geometry(), "tab": self.main_notebook.index("current"),
+                       "log_clear_days": self.log_clear_days_var.get()},
+                "hotkeys": {"start": self.start_hotkey_var.get(), "stop": self.stop_hotkey_var.get(), "play": self.play_hotkey_var.get()},
                 "arrow_jitter_only": self.arrow_jitter_only_var.get(),
                 "playback": {
+                    "repeat": self.repeat_var.get(), "press_jitter": self.press_jitter_var.get(),
+                    "release_jitter": self.release_jitter_var.get(), "seed": self.seed_var.get(),
+                    "reverse_even": self.reverse_even_var.get(),
                     "speed_min": float(self.speed_min_var.get()),
                     "speed_max": float(self.speed_max_var.get()),
                 },
@@ -1561,6 +1574,25 @@ class RecorderApp:
             self.last_script_path = str(script.get("last_path", ""))
             self.arrow_jitter_only_var.set(bool(data.get("arrow_jitter_only", True)))
             playback = data.get("playback", {})
+            for key, variable in {
+                "repeat": self.repeat_var, "press_jitter": self.press_jitter_var,
+                "release_jitter": self.release_jitter_var, "seed": self.seed_var,
+                "reverse_even": self.reverse_even_var,
+            }.items():
+                variable.set(playback.get(key, self.defaults["playback"][key]))
+            ui = data.get("ui", {})
+            if ui.get("geometry"):
+                self.root.geometry(str(ui["geometry"]))
+            self.log_clear_days_var.set(str(ui.get("log_clear_days", "3")))
+            tab = ui.get("tab", 0)
+            if isinstance(tab, int) and 0 <= tab < len(self.main_notebook.tabs()):
+                self.main_notebook.select(tab)
+            hotkeys = data.get("hotkeys", {})
+            keys = [hotkeys.get(key, fallback) for key, fallback in (("start", "F8"), ("stop", "F9"), ("play", "F10"))]
+            if len(set(keys)) == 3 and all(key in HOTKEY_CHOICES for key in keys):
+                for variable, key in zip((self.start_hotkey_var, self.stop_hotkey_var, self.play_hotkey_var), keys):
+                    variable.set(key)
+                self.apply_hotkeys()
             speed_min = float(playback.get("speed_min", self.defaults["playback"]["speed_min"]))
             speed_max = float(playback.get("speed_max", self.defaults["playback"]["speed_max"]))
             if 0 < speed_min <= speed_max <= 10:
@@ -1611,7 +1643,7 @@ class RecorderApp:
             self._refresh_text_targets()
             self.color_var.set(str(detection.get("color", "#FF0000")))
             self.color_tolerance_var.set(int(detection.get("color_tolerance", 10)))
-            self.ocr_text_var.set("")
+            self.ocr_text_var.set(str(detection.get("ocr_text", "")))
             self.ocr_similarity_var.set(
                 float(detection.get("ocr_similarity", 0.70))
             )
