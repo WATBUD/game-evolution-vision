@@ -293,6 +293,7 @@ class RecorderApp:
         self.speed_max_var = tk.DoubleVar(value=1.2)
         self.press_jitter_var = tk.DoubleVar(value=0.010)
         self.release_jitter_var = tk.DoubleVar(value=0.010)
+        self.minimum_hold_var = tk.DoubleVar(value=0.5)
         self.seed_var = tk.IntVar(value=12345)
         self.reverse_even_var = tk.BooleanVar(value=False)
         self.arrow_jitter_only_var = tk.BooleanVar(value=True)
@@ -1003,6 +1004,9 @@ class RecorderApp:
             variable=self.arrow_jitter_only_var,
             command=lambda: self.save_project(notify=False),
         ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(playback, text="最低按住時間（秒）").grid(row=5, column=0, sticky="w", pady=(8, 0))
+        ttk.Spinbox(playback, from_=0, to=60, increment=0.1, textvariable=self.minimum_hold_var, width=8).grid(row=5, column=1, sticky="w", padx=(8, 0), pady=(8, 0))
+        ttk.Label(playback, text="0 表示不限制").grid(row=5, column=2, sticky="w")
         ttk.Label(playback, text="按下抖動 ±").grid(row=1, column=0, sticky="w", pady=(10, 0))
         ttk.Spinbox(
             playback, from_=0.000, to=0.050, increment=0.001,
@@ -1413,6 +1417,7 @@ class RecorderApp:
 
     def _setup_project_autosave(self) -> None:
         variables = (
+            self.minimum_hold_var,
             self.repeat_var, self.press_jitter_var, self.release_jitter_var,
             self.seed_var, self.reverse_even_var, self.arrow_jitter_only_var,
             self.start_hotkey_var, self.stop_hotkey_var, self.play_hotkey_var,
@@ -1479,6 +1484,7 @@ class RecorderApp:
                 "hotkeys": {"start": self.start_hotkey_var.get(), "stop": self.stop_hotkey_var.get(), "play": self.play_hotkey_var.get()},
                 "arrow_jitter_only": self.arrow_jitter_only_var.get(),
                 "playback": {
+                    "minimum_hold": float(self.minimum_hold_var.get()),
                     "repeat": self.repeat_var.get(), "press_jitter": self.press_jitter_var.get(),
                     "release_jitter": self.release_jitter_var.get(), "seed": self.seed_var.get(),
                     "reverse_even": self.reverse_even_var.get(),
@@ -1574,6 +1580,8 @@ class RecorderApp:
             self.last_script_path = str(script.get("last_path", ""))
             self.arrow_jitter_only_var.set(bool(data.get("arrow_jitter_only", True)))
             playback = data.get("playback", {})
+            minimum_hold = float(playback.get("minimum_hold", 0.5))
+            self.minimum_hold_var.set(minimum_hold if 0 <= minimum_hold <= 60 else 0.5)
             for key, variable in {
                 "repeat": self.repeat_var, "press_jitter": self.press_jitter_var,
                 "release_jitter": self.release_jitter_var, "seed": self.seed_var,
@@ -3101,6 +3109,7 @@ class RecorderApp:
             speed_max = float(self.speed_max_var.get())
             press_jitter_sec = float(self.press_jitter_var.get())
             release_jitter_sec = float(self.release_jitter_var.get())
+            minimum_hold = float(self.minimum_hold_var.get())
             seed = int(self.seed_var.get())
             reverse_even = bool(self.reverse_even_var.get())
             if (
@@ -3110,6 +3119,7 @@ class RecorderApp:
                 or not 0.0 <= press_jitter_sec <= 0.050
                 or not 0.0 <= release_jitter_sec <= 0.050
                 or seed < 0
+                or not 0 <= minimum_hold <= 60
             ):
                 raise ValueError
         except (ValueError, tk.TclError):
@@ -3130,6 +3140,7 @@ class RecorderApp:
                 hwnd, repeats, speed_min, speed_max,
                 press_jitter_sec, release_jitter_sec, seed, reverse_even,
                 self.arrow_jitter_only_var.get(),
+                minimum_hold,
             ),
             daemon=True,
         ).start()
@@ -3137,7 +3148,7 @@ class RecorderApp:
     def _play_worker(
         self, hwnd: int, repeats: int, speed_min: float, speed_max: float,
         press_jitter_sec: float, release_jitter_sec: float, seed: int,
-        reverse_even: bool, arrow_jitter_only: bool = True,
+        reverse_even: bool, arrow_jitter_only: bool = True, minimum_hold: float = 0.5,
     ) -> None:
         held: set[str] = set()
         pressed_at: dict[str, float] = {}
@@ -3188,7 +3199,7 @@ class RecorderApp:
                     scheduled_time = max(scheduled_time, event_time)
                     deadline = cycle_started + scheduled_time
                     if event.action == "up" and playback_key in pressed_at:
-                        deadline = max(deadline, pressed_at[playback_key] + 0.5)
+                        deadline = max(deadline, pressed_at[playback_key] + minimum_hold)
                         scheduled_time = max(scheduled_time, deadline - cycle_started)
                     if precise_wait_until(deadline, self.stop_event):
                         return
