@@ -294,6 +294,7 @@ class RecorderApp:
         self.press_jitter_var = tk.DoubleVar(value=0.010)
         self.release_jitter_var = tk.DoubleVar(value=0.010)
         self.minimum_hold_var = tk.DoubleVar(value=0.5)
+        self.jitter_direction_var = tk.StringVar(value="正負隨機")
         self.seed_var = tk.IntVar(value=12345)
         self.reverse_even_var = tk.BooleanVar(value=False)
         self.arrow_jitter_only_var = tk.BooleanVar(value=True)
@@ -1005,6 +1006,12 @@ class RecorderApp:
             command=lambda: self.save_project(notify=False),
         ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
         ttk.Label(playback, text="最低按住時間（秒）").grid(row=5, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(playback, text="抖動方向").grid(row=6, column=0, sticky="w", pady=(8, 0))
+        ttk.Combobox(
+            playback, textvariable=self.jitter_direction_var,
+            values=("正負隨機", "僅正值（延後）", "僅負值（提前）"),
+            state="readonly", width=18,
+        ).grid(row=6, column=1, columnspan=2, sticky="w", padx=(8, 0), pady=(8, 0))
         ttk.Spinbox(playback, from_=0, to=60, increment=0.1, textvariable=self.minimum_hold_var, width=8).grid(row=5, column=1, sticky="w", padx=(8, 0), pady=(8, 0))
         ttk.Label(playback, text="0 表示不限制").grid(row=5, column=2, sticky="w")
         ttk.Label(playback, text="按下抖動 ±").grid(row=1, column=0, sticky="w", pady=(10, 0))
@@ -1418,6 +1425,7 @@ class RecorderApp:
     def _setup_project_autosave(self) -> None:
         variables = (
             self.minimum_hold_var,
+            self.jitter_direction_var,
             self.repeat_var, self.press_jitter_var, self.release_jitter_var,
             self.seed_var, self.reverse_even_var, self.arrow_jitter_only_var,
             self.start_hotkey_var, self.stop_hotkey_var, self.play_hotkey_var,
@@ -1485,6 +1493,7 @@ class RecorderApp:
                 "arrow_jitter_only": self.arrow_jitter_only_var.get(),
                 "playback": {
                     "minimum_hold": float(self.minimum_hold_var.get()),
+                    "jitter_direction": self.jitter_direction_var.get(),
                     "repeat": self.repeat_var.get(), "press_jitter": self.press_jitter_var.get(),
                     "release_jitter": self.release_jitter_var.get(), "seed": self.seed_var.get(),
                     "reverse_even": self.reverse_even_var.get(),
@@ -1580,6 +1589,8 @@ class RecorderApp:
             self.last_script_path = str(script.get("last_path", ""))
             self.arrow_jitter_only_var.set(bool(data.get("arrow_jitter_only", True)))
             playback = data.get("playback", {})
+            direction = playback.get("jitter_direction", "正負隨機")
+            self.jitter_direction_var.set(direction if direction in ("正負隨機", "僅正值（延後）", "僅負值（提前）") else "正負隨機")
             minimum_hold = float(playback.get("minimum_hold", 0.5))
             self.minimum_hold_var.set(minimum_hold if 0 <= minimum_hold <= 60 else 0.5)
             for key, variable in {
@@ -3141,6 +3152,7 @@ class RecorderApp:
                 press_jitter_sec, release_jitter_sec, seed, reverse_even,
                 self.arrow_jitter_only_var.get(),
                 minimum_hold,
+                self.jitter_direction_var.get(),
             ),
             daemon=True,
         ).start()
@@ -3149,6 +3161,7 @@ class RecorderApp:
         self, hwnd: int, repeats: int, speed_min: float, speed_max: float,
         press_jitter_sec: float, release_jitter_sec: float, seed: int,
         reverse_even: bool, arrow_jitter_only: bool = True, minimum_hold: float = 0.5,
+        jitter_direction: str = "正負隨機",
     ) -> None:
         held: set[str] = set()
         pressed_at: dict[str, float] = {}
@@ -3192,7 +3205,10 @@ class RecorderApp:
                     }:
                         jitter_limit = 0.0
                     jitter = (
-                        rng.uniform(-jitter_limit, jitter_limit)
+                        rng.uniform(
+                            0.0 if jitter_direction == "僅正值（延後）" else -jitter_limit,
+                            0.0 if jitter_direction == "僅負值（提前）" else jitter_limit,
+                        )
                         if jitter_limit else 0.0
                     )
                     event_time = max(0.0, event.time / speed + jitter)
