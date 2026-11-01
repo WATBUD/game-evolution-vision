@@ -3140,6 +3140,7 @@ class RecorderApp:
         reverse_even: bool, arrow_jitter_only: bool = True,
     ) -> None:
         held: set[str] = set()
+        pressed_at: dict[str, float] = {}
         rng = random.Random(seed)
         largest_error_ms = 0.0
         try:
@@ -3186,6 +3187,9 @@ class RecorderApp:
                     event_time = max(0.0, event.time / speed + jitter)
                     scheduled_time = max(scheduled_time, event_time)
                     deadline = cycle_started + scheduled_time
+                    if event.action == "up" and playback_key in pressed_at:
+                        deadline = max(deadline, pressed_at[playback_key] + 0.5)
+                        scheduled_time = max(scheduled_time, deadline - cycle_started)
                     if precise_wait_until(deadline, self.stop_event):
                         return
                     if int(user32.GetForegroundWindow()) != hwnd:
@@ -3195,10 +3199,12 @@ class RecorderApp:
                     )
                     if event.action == "down":
                         send_windows_key(playback_key, True)
+                        pressed_at.setdefault(playback_key, time.perf_counter())
                         held.add(playback_key)
                     else:
                         send_windows_key(playback_key, False)
                         held.discard(playback_key)
+                        pressed_at.pop(playback_key, None)
         except Exception as exc:
             self.ui_queue.put(("error", str(exc)))
         finally:
