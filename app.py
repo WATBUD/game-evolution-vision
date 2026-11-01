@@ -3142,6 +3142,8 @@ class RecorderApp:
 
         self.playing = True
         self.stop_event.clear()
+        self.detection_lock_var.set(True)
+        self._on_detection_lock_toggled()
         self.record_button.configure(state="disabled")
         self.play_button.configure(state="disabled")
         self._set_state("準備播放", "正在切換至指定視窗…")
