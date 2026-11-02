@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import traceback
+import uuid
 import tkinter as tk
 import winsound
 from dataclasses import asdict
@@ -267,7 +268,8 @@ def screen_pixel_color(x: int, y: int) -> tuple[int, int, int]:
 class RecorderApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Game Evolution")
+        self.instance_id = str(uuid.uuid4())
+        self.root.title(self.instance_id)
         self.root.geometry("980x760")
         self.root.minsize(820, 650)
 
