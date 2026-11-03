@@ -1485,6 +1485,7 @@ class RecorderApp:
                     "count": int(stat.get("count", 0)),
                     "alert_repeat": int(stat.get("alert_repeat", 1)),
                     "similarity": float(stat.get("similarity", 0.85)),
+                    "enabled": bool(stat.get("enabled", True)),
                 })
             payload = {
                 "version": 9,
@@ -1572,6 +1573,7 @@ class RecorderApp:
                 name = str(item["name"])
                 loaded.append((name, image))
                 loaded_stats[self._template_stat_key(name, image)] = {
+                    "enabled": bool(item.get("enabled", True)),
                     "last_detected": str(item.get("last_detected", "")),
                     "count": int(item.get("count", 0)),
                     "alert_repeat": max(
@@ -1645,6 +1647,7 @@ class RecorderApp:
                 self.text_targets = [
                     {
                         "text": str(item.get("text", "")).strip(),
+                        "enabled": bool(item.get("enabled", True)),
                         "similarity": float(item.get("similarity", 0.70)),
                         "alert_repeat": max(
                             1, min(MAX_ALERT_REPEAT, int(item.get("alert_repeat", 1)))
@@ -1787,6 +1790,14 @@ class RecorderApp:
         self._on_detection_setting_changed()
         self._schedule_project_save()
 
+    def _set_target_enabled(self, kind: str, key: int | str, enabled: bool) -> None:
+        if kind == "text":
+            self.text_targets[int(key)]["enabled"] = enabled
+        else:
+            self.template_stats.setdefault(str(key), {})["enabled"] = enabled
+        self.save_project(notify=False)
+        self._on_detection_setting_changed()
+
     def _refresh_text_targets(self) -> None:
         for child in self.text_list_inner.winfo_children():
             child.destroy()
@@ -1810,6 +1821,9 @@ class RecorderApp:
                 wrapper, text=f"{index + 1}. {item['text']}", padding=(9, 5)
             )
             row.pack(fill="x", padx=1, pady=1)
+            enabled = tk.BooleanVar(value=bool(item.get("enabled", True)))
+            ttk.Checkbutton(row, text="啟用", variable=enabled,
+                command=lambda i=index, v=enabled: self._set_target_enabled("text", i, v.get())).pack(side="left", padx=(0, 10))
             ttk.Label(row, text="相似度", foreground="#7352A3").pack(side="left")
             similarity_var = tk.DoubleVar(value=float(item.get("similarity", 0.70)))
             similarity_spin = ttk.Spinbox(
@@ -1869,6 +1883,9 @@ class RecorderApp:
             )
             card.pack(fill="x", padx=1, pady=1)
             card.columnconfigure(1, weight=1)
+            enabled = tk.BooleanVar(value=bool(self.template_stats.get(key, {}).get("enabled", True)))
+            ttk.Checkbutton(card, text="啟用", variable=enabled,
+                command=lambda k=key, v=enabled: self._set_target_enabled("image", k, v.get())).grid(row=3, column=0, sticky="w")
             preview_width, preview_height = 96, 64
             scaled = ImageOps.contain(
                 image.convert("RGB"),
@@ -2298,12 +2315,15 @@ class RecorderApp:
                         self._template_similarity(self._template_stat_key(name, image)),
                     )
                     for name, image in self.template_images
+                    if self.template_stats.get(self._template_stat_key(name, image), {}).get("enabled", True)
                 ]
             if mode in ("文字", "ALL"):
                 if not self.text_targets:
                     raise ValueError("請先將要尋找的文字加入文字列表。")
                 text_target = []
                 for index, item in enumerate(self.text_targets):
+                    if not item.get("enabled", True):
+                        continue
                     raw_text = str(item["text"]).strip()
                     normalized_text = normalize_ocr_text(raw_text)
                     text_threshold = float(item.get("similarity", 0.70))
@@ -2417,6 +2437,8 @@ class RecorderApp:
         target_title: str, next_alert_at: dict[str, float], cooldown: float,
         alert_interval: float, alert_speed: float,
     ) -> str:
+        if not targets:
+            return "沒有啟用的文字目標"
         results: list[tuple[str, float, float, str]] = []
         visual_hits: list[tuple[str, str, int, float, float]] = []
         evidence_path = ""
@@ -2500,6 +2522,7 @@ class RecorderApp:
                         self._template_similarity(self._template_stat_key(name, item)),
                     )
                     for name, item in self.template_images
+                    if self.template_stats.get(self._template_stat_key(name, item), {}).get("enabled", True)
                 ]
                 if continuous else original_templates
             )
@@ -2641,6 +2664,7 @@ class RecorderApp:
                                 ),
                             )
                             for name, item in self.template_images
+                            if self.template_stats.get(self._template_stat_key(name, item), {}).get("enabled", True)
                         ]
                         if continuous
                         else original_templates
