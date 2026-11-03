@@ -2961,6 +2961,10 @@ class RecorderApp:
         )
 
     def stop_all(self) -> None:
+        self.pending_detection_restart = False
+        self.detection_lock_var.set(False)
+        self.detection_stop_event.set()
+        self._update_detection_lock_state()
         was_recording = self.recording
         was_playing = self.playing
         self.recording = False
