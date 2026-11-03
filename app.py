@@ -391,7 +391,6 @@ class RecorderApp:
         self.refresh_windows()
         self.root.after(250, self._show_main_window)
         self.root.after(350, self._restore_last_script)
-        self.root.after(600, self._start_locked_detection_on_launch)
         self.root.after(100, self._poll_queue)
         self.root.after(1000, self._window_health_watchdog)
         self.root.bind("<Map>", self._on_root_map, add="+")
