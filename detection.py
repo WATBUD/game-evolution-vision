@@ -22,6 +22,8 @@ from winrt.windows.storage.streams import Buffer
 
 
 OCR_LANGUAGE = "zh-Hant-TW"
+# Template matching must not consume every CPU core alongside the game.
+cv2.setNumThreads(1)
 _ocr_thread_local = threading.local()
 
 

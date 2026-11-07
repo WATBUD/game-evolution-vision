@@ -2609,6 +2609,12 @@ class RecorderApp:
         alert_speed: float,
         continuous: bool,
     ) -> None:
+        # Lower only this worker's CPU/I/O priority, keeping playback and UI
+        # scheduling at their existing priority. Windows also deprioritizes
+        # inference threads created by this background worker.
+        kernel32.GetCurrentThread.restype = wintypes.HANDLE
+        kernel32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
+        kernel32.SetThreadPriority(kernel32.GetCurrentThread(), 0x00010000)
         next_alert_at: dict[str, float] = {}
         previous_matches: set[str] = set()
         image_interval, text_interval = intervals
@@ -2773,6 +2779,9 @@ class RecorderApp:
                     )
                 else:
                     remaining = max(0.0, interval - (time.monotonic() - started))
+                # An OCR pass can exceed the requested interval. Still yield
+                # between passes instead of running inference continuously.
+                remaining = max(remaining, min(0.25, max(0.05, (time.monotonic() - started) * 0.1)))
                 if self.detection_stop_event.wait(remaining):
                     break
         except Exception as exc:

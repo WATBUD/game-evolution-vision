@@ -12,7 +12,7 @@ _local = threading.local()
 def recognize_overlay(image: Image.Image) -> list[str]:
     engine = getattr(_local, "engine", None)
     if engine is None:
-        engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
+        engine = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
         _local.engine = engine
     # RapidOCR expects BGR. Keep color information lost by grayscale OCR.
     pixels = np.asarray(image.convert("RGB"))[:, :, ::-1].copy()
