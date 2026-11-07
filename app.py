@@ -1444,14 +1444,31 @@ class RecorderApp:
         self.root.bind("<Configure>", lambda event: self._schedule_project_save() if event.widget is self.root else None, add="+")
         self.main_notebook.bind("<<NotebookTabChanged>>", self._schedule_project_save, add="+")
         detection_variables = (
-            self.detect_mode_var, self.similarity_var, self.image_scan_interval_var,
-            self.text_scan_interval_var,
+            self.detect_mode_var, self.similarity_var,
             self.color_var, self.color_tolerance_var,
             self.alert_repeat_var, self.alert_interval_var, self.alert_speed_var,
             self.alert_cooldown_var, self.text_cooldown_var,
         )
         for variable in detection_variables:
             variable.trace_add("write", self._on_detection_setting_changed)
+        self.live_scan_intervals = (float(self.image_scan_interval_var.get()), float(self.text_scan_interval_var.get()))
+        self.interval_apply_after = None
+        for variable in (self.image_scan_interval_var, self.text_scan_interval_var):
+            variable.trace_add("write", self._schedule_scan_interval_update)
+
+    def _schedule_scan_interval_update(self, *_args: object) -> None:
+        if self.interval_apply_after is not None:
+            self.root.after_cancel(self.interval_apply_after)
+        self.interval_apply_after = self.root.after(350, self._apply_scan_intervals)
+
+    def _apply_scan_intervals(self) -> None:
+        self.interval_apply_after = None
+        try:
+            values = (float(self.image_scan_interval_var.get()), float(self.text_scan_interval_var.get()))
+        except (ValueError, tk.TclError):
+            return
+        if all(0.1 <= value <= 60 for value in values):
+            self.live_scan_intervals = values
 
     def _on_ocr_text_changed(self, *_args: object) -> None:
         self._on_detection_setting_changed()
@@ -2626,6 +2643,11 @@ class RecorderApp:
         effects_were_enabled = self._detection_effects_enabled()
         try:
             while not self.detection_stop_event.is_set():
+                updated_intervals = self.live_scan_intervals
+                if updated_intervals != (image_interval, text_interval):
+                    image_interval, text_interval = updated_intervals
+                    interval = image_interval if mode == "圖片" else text_interval
+                    next_image_scan = next_text_scan = 0.0
                 effects_enabled = self._detection_effects_enabled()
                 if effects_enabled and not effects_were_enabled:
                     previous_matches.clear()
@@ -2782,8 +2804,12 @@ class RecorderApp:
                 # An OCR pass can exceed the requested interval. Still yield
                 # between passes instead of running inference continuously.
                 remaining = max(remaining, min(0.25, max(0.05, (time.monotonic() - started) * 0.1)))
-                if self.detection_stop_event.wait(remaining):
-                    break
+                wait_until = time.monotonic() + remaining
+                while time.monotonic() < wait_until:
+                    if self.live_scan_intervals != (image_interval, text_interval):
+                        break
+                    if self.detection_stop_event.wait(min(0.1, max(0.0, wait_until - time.monotonic()))):
+                        break
         except Exception as exc:
             self.ui_queue.put(("detect_error", traceback.format_exc().strip()))
         finally:
